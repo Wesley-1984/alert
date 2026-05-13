@@ -1,0 +1,86 @@
+# 网络设备智能巡检告警系统 - Docker Compose 配置
+# 部署架构：
+#   syslog 服务器 (192.168.40.198) 日志目录: /log/syslog
+#   Docker 服务器 (192.168.40.17) 宿主机挂载 NFS 后映射到容器
+#
+# 挂载链路：
+#   192.168.40.198:/log/syslog  --NFS-->  192.168.40.17:/mnt/syslog  --bind-->  容器:/var/log/switches
+#
+# 监控设备：
+#   锐捷/华为交换机  (仅发 level 4+ 日志)
+#   深信服AF防火墙   (版本 8.0.95, 发送所有级别日志)
+#   深信服SSL VPN    (版本 SSL M7.6.8 R2, 发送所有级别日志)
+
+services:
+  switch-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: switch-monitor:latest
+    container_name: switch-monitor
+    restart: unless-stopped
+
+    # 运行模式: daemon(持续监控) / scan(一次性扫描) / test(测试通知)
+    command: daemon
+
+    environment:
+      - TZ=Asia/Shanghai
+
+    volumes:
+      # ==================== 核心：syslog 日志目录 ====================
+      # 宿主机先挂载 NFS，再映射到容器
+      # 192.168.40.198:/log/syslog --> 宿主机 /mnt/syslog --> 容器 /var/log/switches
+      # 包含：交换机、深信服AF防火墙、深信服SSL VPN 等设备的日志目录
+      - /mnt/syslog:/var/log/switches:ro
+
+      # ==================== 配置文件（可热修改） ====================
+      - ./config.yaml:/app/config.yaml:ro
+
+      # ==================== 自定义规则（可热修改） ====================
+      - ./patterns/custom.yaml:/app/patterns/custom.yaml:ro
+
+      # ==================== 持久化数据 ====================
+      - monitor-state:/app/state
+      - monitor-archive:/app/archive
+      - monitor-logs:/app/logs
+
+    # 网络配置（确保能访问钉钉 API 和 AI API）
+    networks:
+      - monitor-net
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+        reservations:
+          memory: 128M
+          cpus: "0.25"
+
+    # 日志配置
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "monitor.py"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  monitor-state:
+    driver: local
+  monitor-archive:
+    driver: local
+  monitor-logs:
+    driver: local
+
+networks:
+  monitor-net:
+    driver: bridge

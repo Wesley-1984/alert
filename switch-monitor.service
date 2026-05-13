@@ -1,0 +1,16 @@
+[Unit]
+Description=Switch Monitor - 交换机智能巡检告警系统
+After=network.target rsyslog.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/switch-monitor
+ExecStart=/usr/bin/python3 /opt/switch-monitor/monitor.py -c /opt/switch-monitor/config.yaml -m daemon
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

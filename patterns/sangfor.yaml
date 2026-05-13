@@ -1,0 +1,311 @@
+# 深信服设备日志告警匹配规则
+# vendor: sangfor
+# 覆盖设备：
+#   - 深信服下一代防火墙 AF（版本 8.0.95）
+#   - 深信服 SSL VPN（版本 SSL M7.6.8 R2）
+#
+# ⚠️ 重要说明：
+#   交换机只发送 level 4（warning）及以上日志，
+#   但防火墙和 SSL VPN 发送所有级别日志（debug~emerg）。
+#   因此本规则集**只匹配告警级别的事件**，普通信息日志不会触发告警。
+#
+# dedup_extract 说明（可选字段）：
+#   从日志中提取变量成分加入去重 key，避免不同端口/IP 的同类告警被误去重
+#   格式：正则表达式，取第一个捕获组 () 的内容
+#
+# 深信服 AF 日志格式示例：
+#   <priority> timestamp hostname AF: [攻击日志] 检测到入侵攻击...
+#   <priority> timestamp hostname AF: [系统日志] HA状态切换: 主机切换为备机
+#   <priority> timestamp hostname AF: [接口日志] 接口eth0状态变为DOWN
+#   <priority> timestamp hostname AF: attack/intrusion/critical: ...
+#
+# 深信服 SSL VPN 日志格式示例：
+#   <priority> timestamp hostname SSL_VPN: [VPN隧道日志] VPN隧道断开...
+#   <priority> timestamp hostname SSL_VPN: [认证日志] 用户认证失败...
+#   <priority> timestamp hostname SSL_VPN: [系统日志] CPU使用率超过阈值...
+#
+# 日志级别映射（RFC 5424 severity）：
+#   emerg/alert → critical    |  error → warning
+#   warning → warning        |  notice/info/debug → 不匹配
+
+patterns:
+  # ==================== 紧急告警 (critical) ====================
+
+  # ---------- AF 防火墙 - 安全事件 ----------
+
+  - name: "入侵攻击检测"
+    level: critical
+    regex: "入侵攻击|入侵检测|intrusion.*detect|INTRUSION|attack.*detect|ATTACK_DETECT|攻击检测|attack_type"
+    description: "检测到入侵攻击行为，可能存在安全威胁"
+    keywords: ["入侵", "intrusion", "attack"]
+    affected_components: ["网络安全", "受攻击主机", "业务系统"]
+    quick_check: "AF控制台 → 攻击日志 → 查看攻击详情"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  - name: "病毒检测"
+    level: critical
+    regex: "病毒.*检测|病毒.*发现|virus.*detect|VIRUS|病毒拦截|木马|trojan|worm|malware|恶意软件|恶意代码"
+    description: "检测到病毒/木马/恶意软件，需要立即处理"
+    keywords: ["病毒", "virus", "trojan", "malware"]
+    affected_components: ["终端安全", "文件安全", "网络隔离"]
+    quick_check: "AF控制台 → 病毒日志 → 查看感染详情"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  - name: "漏洞利用检测"
+    level: critical
+    regex: "漏洞.*利用|exploit|CVE-|vulnerability.*exploit|漏洞攻击|漏洞防护|WEB攻击|web.*attack|SQL注入|XSS|命令注入|code.*injection"
+    description: "检测到漏洞利用攻击或Web攻击，存在被入侵风险"
+    keywords: ["漏洞", "exploit", "CVE", "注入", "injection"]
+    affected_components: ["服务器安全", "Web应用", "数据库"]
+    quick_check: "AF控制台 → 漏洞防护日志 → 查看攻击详情"
+    dedup_extract: "(CVE-\\S+)"
+
+  - name: "僵尸网络/DNS隧道"
+    level: critical
+    regex: "僵尸网络|botnet|DNS隧道|dns.*tunnel|C2.*通信|C&C|暗网|dark.*web|隐蔽通道|covert.*channel"
+    description: "检测到僵尸网络通信或DNS隧道行为，主机可能已被控"
+    keywords: ["botnet", "C2", "DNS隧道"]
+    affected_components: ["终端安全", "数据泄露", "内网渗透"]
+    quick_check: "AF控制台 → 高级威胁日志 → 查看通信详情"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  - name: "暴力破解攻击"
+    level: critical
+    regex: "暴力破解|brute.*force|爆破|密码猜测|password.*crack|爆破攻击|login.*brute"
+    description: "检测到暴力破解攻击，可能存在口令泄露风险"
+    keywords: ["暴力破解", "brute force", "爆破"]
+    affected_components: ["账户安全", "管理平面"]
+    quick_check: "AF控制台 → 攻击日志 → 筛选暴力破解类型"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  # ---------- AF 防火墙 - 系统事件 ----------
+
+  - name: "HA主备切换"
+    level: critical
+    regex: "HA.*切换|HA.*failover|HA.*switch|主备切换|HA_STATE|HA.*active.*standby|HA.*主.*备|主机切换为备机|备机切换为主机|HA倒换"
+    description: "防火墙HA发生主备切换，可能导致业务短暂中断"
+    keywords: ["HA", "切换", "failover"]
+    affected_components: ["双机热备", "业务连续性", "ARP收敛"]
+    quick_check: "AF控制台 → 系统日志 → 查看HA状态"
+    recovery_regex: "HA.*恢复|HA.*stable|HA.*正常|HA状态稳定|主备稳定"
+    recovery_name: "HA状态稳定"
+
+  - name: "防火墙接口Down"
+    level: critical
+    regex: "接口.*down|接口.*断开|interface.*down|链路.*down|port.*down|eth.*down|物理接口.*异常|接口状态.*DOWN|接口异常"
+    description: "防火墙物理接口断开，可能影响网络连通性"
+    keywords: ["接口", "down", "interface"]
+    affected_components: ["网络连通性", "业务可用性", "安全策略"]
+    quick_check: "AF控制台 → 网络配置 → 接口状态"
+    dedup_extract: "(?:接口|interface|port)\\s*(\\S+)"
+    recovery_regex: "接口.*up|接口.*恢复|interface.*up|链路.*up|接口状态.*UP"
+    recovery_name: "防火墙接口恢复"
+
+  - name: "防火墙电源异常"
+    level: critical
+    regex: "电源.*故障|电源.*异常|power.*fail|power supply.*fault|电源模块.*异常|POWER.*ALARM|电源告警"
+    description: "防火墙电源模块异常，存在断电风险"
+    keywords: ["电源", "power", "fault"]
+    affected_components: ["供电系统", "设备可用性"]
+    quick_check: "AF控制台 → 运行状态 → 电源状态"
+    dedup_extract: "(?:电源|Power)\\s*(\\S+)"
+    recovery_regex: "电源.*恢复|电源.*正常|power.*ok|power.*recover|POWER.*RECOVER"
+    recovery_name: "防火墙电源恢复"
+
+  - name: "防火墙风扇故障"
+    level: critical
+    regex: "风扇.*故障|风扇.*异常|fan.*fail|fan.*fault|风扇告警|FAN.*ALARM"
+    description: "防火墙风扇故障，设备散热受影响"
+    keywords: ["风扇", "fan", "fault"]
+    affected_components: ["散热系统", "设备温度"]
+    quick_check: "AF控制台 → 运行状态 → 风扇状态"
+    dedup_extract: "(?:风扇|Fan)\\s*(\\S+)"
+    recovery_regex: "风扇.*恢复|风扇.*正常|fan.*ok|fan.*recover|FAN.*RECOVER"
+    recovery_name: "防火墙风扇恢复"
+
+  # ---------- SSL VPN - 隧道事件 ----------
+
+  - name: "VPN隧道断开"
+    level: critical
+    regex: "VPN.*隧道.*断开|VPN.*tunnel.*down|VPN.*断开|VPN.*disconnect|隧道.*down|tunnel.*down|IPSec.*down|SSL.*VPN.*断开|VPN连接.*失败|VPN.*离线"
+    description: "SSL VPN隧道断开，远程用户无法访问内网资源"
+    keywords: ["VPN", "隧道", "断开", "tunnel", "down"]
+    affected_components: ["远程接入", "VPN隧道", "移动办公"]
+    quick_check: "SSL VPN控制台 → VPN隧道状态"
+    dedup_extract: "(\\S*隧道\\S*|tunnel \\S+)"
+    recovery_regex: "VPN.*隧道.*建立|VPN.*tunnel.*up|VPN.*连接.*成功|VPN.*恢复|tunnel.*up|IPSec.*up|VPN.*在线"
+    recovery_name: "VPN隧道恢复"
+
+  - name: "VPN服务异常"
+    level: critical
+    regex: "VPN.*服务.*异常|VPN.*服务.*停止|VPN.*service.*down|VPN.*不可用|VPN.*离线|VPN服务.*挂起|VPN.*crash"
+    description: "SSL VPN服务异常或停止，所有远程用户受影响"
+    keywords: ["VPN", "服务", "异常", "service"]
+    affected_components: ["VPN服务", "远程办公", "全部远程用户"]
+    quick_check: "SSL VPN控制台 → 运行状态 → 服务状态"
+    recovery_regex: "VPN.*服务.*恢复|VPN.*服务.*启动|VPN.*service.*up|VPN.*服务.*正常"
+    recovery_name: "VPN服务恢复"
+
+  # ==================== 警告 (warning) ====================
+
+  # ---------- AF 防火墙 - 资源/系统 ----------
+
+  - name: "防火墙CPU利用率高"
+    level: warning
+    regex: "CPU.*使用率.*超|CPU.*过高|CPU.*exceed|CPU.*overload|CPU利用率.*超过|CPU.*阈值"
+    description: "防火墙CPU利用率过高，可能影响处理性能"
+    keywords: ["CPU", "使用率", "overload"]
+    affected_components: ["处理性能", "安全检测能力", "会话建立"]
+    quick_check: "AF控制台 → 运行状态 → CPU使用率"
+    recovery_regex: "CPU.*使用率.*恢复|CPU.*正常|CPU.*recover|CPU.*normal"
+    recovery_name: "防火墙CPU恢复正常"
+
+  - name: "防火墙内存利用率高"
+    level: warning
+    regex: "内存.*使用率.*超|内存.*过高|memory.*exceed|memory.*overload|内存利用率.*超过|内存.*阈值|MEM.*HIGH"
+    description: "防火墙内存利用率过高，可能影响新建会话"
+    keywords: ["内存", "memory", "overload"]
+    affected_components: ["会话表", "处理能力", "系统稳定性"]
+    quick_check: "AF控制台 → 运行状态 → 内存使用率"
+    recovery_regex: "内存.*使用率.*恢复|内存.*正常|memory.*recover|memory.*normal|MEM.*NORMAL"
+    recovery_name: "防火墙内存恢复正常"
+
+  - name: "防火墙会话数超限"
+    level: warning
+    regex: "会话数.*超|会话表.*满|session.*exceed|session.*limit|并发会话.*超|会话资源.*不足|SESSION.*LIMIT"
+    description: "防火墙并发会话数超限，新建连接可能被丢弃"
+    keywords: ["会话", "session", "limit"]
+    affected_components: ["并发连接", "新建会话", "业务访问"]
+    quick_check: "AF控制台 → 运行状态 → 会话统计"
+    recovery_regex: "会话数.*恢复|会话.*正常|session.*normal|session.*recover"
+    recovery_name: "会话数恢复正常"
+
+  - name: "防火墙磁盘空间不足"
+    level: warning
+    regex: "磁盘.*不足|磁盘.*满|disk.*full|disk.*space.*low|存储空间.*不足|硬盘.*告警|DISK.*FULL"
+    description: "防火墙磁盘空间不足，日志和报告功能受影响"
+    keywords: ["磁盘", "disk", "空间", "full"]
+    affected_components: ["日志存储", "报告生成", "系统升级"]
+    quick_check: "AF控制台 → 运行状态 → 磁盘使用率"
+    recovery_regex: "磁盘.*释放|磁盘.*正常|disk.*ok|disk.*recover|存储空间.*恢复"
+    recovery_name: "磁盘空间恢复"
+
+  - name: "防火墙温度过高"
+    level: warning
+    regex: "温度.*过高|temperature.*high|thermal.*alarm|过热|设备温度.*超|TEMP.*ALARM|温度告警"
+    description: "防火墙设备温度过高，可能影响硬件寿命"
+    keywords: ["温度", "temperature", "thermal"]
+    affected_components: ["硬件寿命", "芯片稳定性", "处理性能"]
+    quick_check: "AF控制台 → 运行状态 → 设备温度"
+    recovery_regex: "温度.*正常|temperature.*normal|thermal.*normal|TEMP.*RECOVER"
+    recovery_name: "设备温度恢复正常"
+
+  - name: "防火墙License即将到期"
+    level: warning
+    regex: "License.*到期|License.*过期|授权.*到期|授权.*过期|license.*expir|LICENSE.*EXPIR"
+    description: "防火墙授权即将到期或已过期，功能可能受限"
+    keywords: ["License", "授权", "到期", "expir"]
+    affected_components: ["安全功能", "特征库更新", "合规性"]
+    quick_check: "AF控制台 → 系统配置 → 授权管理"
+    dedup_extract: "(License\\s*\\S+)"
+    recovery_regex: "License.*续期|License.*更新|授权.*更新|license.*renew|授权.*恢复"
+    recovery_name: "License授权更新"
+
+  - name: "特征库过期"
+    level: warning
+    regex: "特征库.*过期|特征库.*更新.*失败|规则库.*过期|规则库.*失败|signature.*outdated|特征.*更新失败"
+    description: "安全特征库过期或更新失败，威胁检测能力降低"
+    keywords: ["特征库", "规则库", "过期", "signature"]
+    affected_components: ["入侵检测", "病毒防护", "URL过滤"]
+    quick_check: "AF控制台 → 系统配置 → 特征库更新"
+    recovery_regex: "特征库.*更新.*成功|规则库.*更新.*成功|signature.*updated|特征库.*恢复"
+    recovery_name: "特征库更新成功"
+
+  # ---------- AF 防火墙 - 安全策略 ----------
+
+  - name: "策略拒绝/阻断"
+    level: warning
+    regex: "策略.*拒绝|策略.*阻断|policy.*deny|policy.*block|访问控制.*拒绝|安全策略.*阻断|ACL.*deny|黑名单.*命中"
+    description: "安全策略拦截了访问请求，可能存在攻击行为或策略误配置"
+    keywords: ["策略", "拒绝", "deny", "block"]
+    affected_components: ["安全策略", "业务访问", "合规审计"]
+    quick_check: "AF控制台 → 流量日志 → 筛选策略拒绝"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  - name: "DOS/DDOS攻击"
+    level: warning
+    regex: "DOS攻击|DDOS攻击|拒绝服务|flood.*attack|DDoS|DoS|SYN.*flood|ICMP.*flood|UDP.*flood|流量攻击|流量异常"
+    description: "检测到DOS/DDOS攻击或流量异常，可能影响服务可用性"
+    keywords: ["DOS", "DDOS", "flood", "拒绝服务"]
+    affected_components: ["网络带宽", "服务可用性", "服务器负载"]
+    quick_check: "AF控制台 → 攻击日志 → 筛选DOS类型"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  - name: "异常流量/黑名单"
+    level: warning
+    regex: "异常流量|流量基线.*偏离|黑名单.*命中|IP黑名单|黑名单.*匹配|bad.*reputation|恶意IP|C2.*IP|威胁情报.*命中"
+    description: "检测到异常流量或命中黑名单/威胁情报，可能存在安全风险"
+    keywords: ["异常流量", "黑名单", "威胁情报"]
+    affected_components: ["网络安全", "数据泄露", "内网渗透"]
+    quick_check: "AF控制台 → 威胁情报日志"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+
+  # ---------- SSL VPN - 用户/资源 ----------
+
+  - name: "VPN认证失败"
+    level: warning
+    regex: "VPN.*认证.*失败|VPN.*登录.*失败|VPN.*auth.*fail|VPN.*login.*fail|SSL.*VPN.*认证失败|VPN用户.*锁定|VPN.*密码.*错误"
+    description: "VPN用户认证失败，可能存在暴力破解或账户异常"
+    keywords: ["VPN", "认证", "失败", "auth", "fail"]
+    affected_components: ["VPN安全", "用户账户", "远程访问"]
+    quick_check: "SSL VPN控制台 → 认证日志 → 查看失败记录"
+    dedup_extract: "(?:用户|user)\\s*(\\S+)"
+
+  - name: "VPN并发用户超限"
+    level: warning
+    regex: "VPN.*并发.*超|VPN.*用户数.*超|VPN.*license.*limit|VPN.*连接数.*满|SSL.*VPN.*并发超限|VPN.*最大用户"
+    description: "VPN并发用户数超限，新用户可能无法连接"
+    keywords: ["VPN", "并发", "超限", "limit"]
+    affected_components: ["远程接入", "并发许可", "用户体验"]
+    quick_check: "SSL VPN控制台 → 运行状态 → 在线用户"
+    recovery_regex: "VPN.*并发.*恢复|VPN.*用户数.*正常|VPN.*连接数.*释放"
+    recovery_name: "VPN并发用户数恢复"
+
+  - name: "VPN资源异常"
+    level: warning
+    regex: "VPN.*资源.*不足|VPN.*CPU.*高|VPN.*内存.*高|SSL.*VPN.*资源|VPN.*性能.*下降"
+    description: "VPN设备资源不足，可能影响VPN服务质量"
+    keywords: ["VPN", "资源", "CPU", "内存"]
+    affected_components: ["VPN性能", "连接质量", "用户体验"]
+    quick_check: "SSL VPN控制台 → 运行状态 → 资源使用"
+    recovery_regex: "VPN.*资源.*恢复|VPN.*CPU.*正常|VPN.*内存.*正常"
+    recovery_name: "VPN资源恢复正常"
+
+  # ==================== 关注 (info) ====================
+
+  - name: "防火墙配置变更"
+    level: info
+    regex: "配置.*变更|配置.*修改|config.*change|configuration.*modified|策略.*修改|规则.*修改"
+    description: "防火墙配置发生变更"
+    keywords: ["配置", "变更", "config"]
+    affected_components: ["安全策略", "运行配置"]
+    quick_check: "AF控制台 → 系统日志 → 配置变更记录"
+    dedup_extract: "(?:by|from|管理员)\\s*(\\S+)"
+
+  - name: "防火墙管理员登录"
+    level: info
+    regex: "管理员.*登录|admin.*login|管理.*登录.*成功|管理员.*认证.*成功"
+    description: "管理员登录防火墙"
+    keywords: ["管理员", "登录", "admin", "login"]
+    affected_components: ["管理平面"]
+    quick_check: "AF控制台 → 管理员日志"
+    dedup_extract: "(?:管理员|admin|用户)\\s*(\\S+)"
+
+  - name: "VPN用户登录成功"
+    level: info
+    regex: "VPN.*登录.*成功|VPN.*用户.*上线|VPN.*连接.*成功|VPN.*auth.*success"
+    description: "VPN用户成功登录"
+    keywords: ["VPN", "登录", "成功"]
+    affected_components: ["远程接入"]
+    quick_check: "SSL VPN控制台 → 在线用户"
+    dedup_extract: "(?:用户|user)\\s*(\\S+)"

@@ -1,0 +1,298 @@
+# SmartX 超融合平台告警匹配规则
+# 适用设备: SMTX OS 超融合节点 (版本 6.2.0) + CloudTower 管理平台
+#
+# 日志特征说明：
+#   SmartX SMTX OS 基于 Linux，syslog 日志包含：
+#   1. 标准 Linux 内核日志 (kernel: 开头) — 磁盘I/O错误、内存、网络等
+#   2. SmartX ZBS 存储组件日志 (zbs- 开头) — 存储集群、副本、数据恢复
+#   3. SmartX ELF 虚拟化日志 — 虚拟机HA、迁移
+#   4. CloudTower 管理日志 — 集群告警、节点状态
+#   5. mdadm 软件 RAID 日志 — 系统盘RAID状态
+#
+# ⚠️ 注意：SmartX 节点会发送大量 info 级别的运维日志，
+#          规则已做级别过滤，只匹配告警级别事件
+#
+# dedup_extract 说明（可选字段）：
+#   从日志中提取变量成分加入去重 key，避免不同磁盘/节点/IP 的同类告警被误去重
+#   格式：正则表达式，取第一个捕获组 () 的内容
+#
+# SmartX 硬盘故障分级参考：
+#   - 不健康盘（坏盘/慢盘I）：自动隔离 + 数据迁移 + 踢出 → critical
+#   - 亚健康盘（慢盘II/IO error <100）：发出告警，人工决定 → warning
+#   - S.M.A.R.T. 不通过：发出告警，人工决定 → warning
+#   - SSD 寿命不足：提示性告警 → info
+
+patterns:
+  # ============================================================
+  #  🔴 CRITICAL — 紧急告警：需立即处理
+  # ============================================================
+
+  - name: "硬盘I/O错误-不健康盘"
+    level: critical
+    regex: "I/O error.*dev|medium error|blk_update_request.*I/O error|Buffer I/O error on device|EXT4-fs error.*I/O"
+    description: "硬盘I/O错误，可能为坏盘或不健康盘，SmartX会自动隔离并迁移数据"
+    affected_components:
+      - "物理硬盘"
+      - "ZBS存储集群"
+      - "虚拟机I/O"
+    quick_check: "zbs-node show_disk_status; smartctl -a /dev/sdX"
+    dedup_extract: "(?:dev|device)\\s+(\\S+)"
+    recovery_regex: "disk.*recovered|I/O error.*cleared|disk.*online|盘.*恢复"
+    recovery_name: "硬盘I/O恢复正常"
+
+  - name: "磁盘下线-故障盘隔离"
+    level: critical
+    regex: "disk.*offline|disk_offline|force.*offline|物理盘下线|盘.*隔离|disk.*isolated|disk.*evict|disk.*踢出|unmount.*disk|disk.*removed"
+    description: "故障盘被强制下线或隔离，SmartX自动执行数据恢复"
+    affected_components:
+      - "物理硬盘"
+      - "数据副本"
+    quick_check: "zbs-node show_disk_status; CloudTower → 磁盘管理"
+    dedup_extract: "(?:disk|盘)\\s*(\\S+)"
+    recovery_regex: "disk.*mounted|disk.*added|盘.*挂载|新盘.*加入|disk.*online"
+    recovery_name: "磁盘重新上线"
+
+  - name: "存储副本降级"
+    level: critical
+    regex: "replica.*degrad|副本.*降级|replica.*unavailable|副本.*不可用|副本数.*不足|replica_count.*down"
+    description: "存储副本数降级，数据冗余性降低，存在数据丢失风险"
+    affected_components:
+      - "ZBS存储集群"
+      - "数据副本"
+    quick_check: "zbs-node cluster_status; CloudTower → 集群状态"
+    recovery_regex: "replica.*recover|副本.*恢复|replica.*normal|数据恢复.*完成|rebuild.*complete"
+    recovery_name: "存储副本恢复正常"
+
+  - name: "数据恢复-重建"
+    level: critical
+    regex: "data.*rebuild|data.*recovery|数据恢复|数据重建|rebalance.*start|数据迁移.*开始|rebuild.*started|副本.*恢复中"
+    description: "SmartX正在执行数据恢复/重建，集群I/O负载可能升高"
+    affected_components:
+      - "ZBS存储集群"
+      - "集群I/O性能"
+    quick_check: "zbs-node recovery_status; CloudTower → 数据恢复进度"
+    recovery_regex: "rebuild.*complete|数据恢复.*完成|rebalance.*done|数据迁移.*完成|recovery.*finished"
+    recovery_name: "数据恢复完成"
+
+  - name: "软件RAID故障"
+    level: critical
+    regex: "mdadm.*faulty|raid.*faulty|RAID.*degraded|md.*failed|md.*faulty|raid1.*disk.*faulty|系统分区冗余.*不足|redundancy.*loss|metadata.*degraded"
+    description: "系统盘软件RAID标记为faulty或冗余度不足，系统分区存在单点故障风险"
+    affected_components:
+      - "系统盘RAID"
+      - "元数据分区"
+      - "操作系统"
+    quick_check: "cat /proc/mdstat; mdadm --detail /dev/md0"
+    dedup_extract: "(md\\S+)"
+    recovery_regex: "md.*recover|md.*resync|raid.*recover|RAID.*恢复|md.*spare.*active"
+    recovery_name: "软件RAID恢复"
+
+  - name: "节点故障"
+    level: critical
+    regex: "node.*down|node.*unreachable|节点.*故障|节点.*不可达|node.*offline|节点.*离线|node.*lost|cluster_node.*down"
+    description: "超融合节点故障或不可达，该节点上虚拟机将触发HA迁移"
+    affected_components:
+      - "HCI节点"
+      - "虚拟机HA"
+      - "ZBS存储集群"
+    quick_check: "CloudTower → 集群 → 节点状态; ping <node-ip>"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "node.*online|node.*connected|节点.*恢复|节点.*上线|cluster_node.*up"
+    recovery_name: "节点恢复"
+
+  - name: "虚拟机HA故障切换"
+    level: critical
+    regex: "VM.*HA|vm.*failover|虚拟机.*故障切换|虚拟机.*迁移|vm.*restart.*on|VM.*HA.*start|vm.*migrate.*fail"
+    description: "虚拟机发生HA故障切换，正在目标节点上重启"
+    affected_components:
+      - "虚拟机"
+      - "ELF虚拟化"
+    quick_check: "CloudTower → 虚拟机 → 查看HA事件"
+    dedup_extract: "(?:VM|vm|虚拟机)\\s*(\\S+)"
+    recovery_regex: "vm.*running|VM.*started|虚拟机.*运行|vm.*poweron.*success"
+    recovery_name: "虚拟机HA恢复"
+
+  - name: "内存故障-ECC"
+    level: critical
+    regex: "EDAC.*CE|EDAC.*UE|ECC.*error|Machine Check|hardware error.*memory|mce.*error|corrected memory error|uncorrected memory error|DDR.*error"
+    description: "内存ECC错误或Machine Check异常，可能为内存条硬件故障"
+    affected_components:
+      - "物理内存"
+      - "节点稳定性"
+    quick_check: "mcelog; dmidecode -t memory; ipmitool sel list"
+    dedup_extract: "(?:DIMM|dimm|slot)\\s*(\\S+)"
+    recovery_regex: "memory.*error.*cleared|ECC.*corrected|内存.*恢复"
+    recovery_name: "内存错误恢复"
+
+  # ============================================================
+  #  🟠 WARNING — 警告：需关注并处理
+  # ============================================================
+
+  - name: "硬盘亚健康"
+    level: warning
+    regex: "sub.?healthy|亚健康|slow.?disk|慢盘|high.?latency.*disk|disk.*latency.*high|low.?IOPS|disk.*degraded|IO error.*count|checksum error.*count|盘.*性能下降"
+    description: "硬盘处于亚健康状态（慢盘II / 少量IO error），需人工判断是否卸载更换"
+    affected_components:
+      - "物理硬盘"
+      - "存储性能"
+    quick_check: "zbs-node show_disk_status; smartctl -a /dev/sdX; CloudTower → 磁盘健康"
+    dedup_extract: "(?:disk|盘)\\s*(\\S+)"
+    recovery_regex: "disk.*healthy|盘.*健康|性能.*恢复|亚健康.*恢复|sub.?healthy.*clear"
+    recovery_name: "硬盘恢复健康"
+
+  - name: "SMART自检不通过"
+    level: warning
+    regex: "smartctl.*fail|S\\.?M\\.?A\\.?R\\.?T.*fail|SMART.*test.*fail|self.?test.*fail|Reallocated_Sector|Current_Pending_Sector|Offline_Uncorrectable|spin_retry|SMART.*threshold.*exceeded|smart_status.*fail"
+    description: "硬盘S.M.A.R.T.自检不通过，存在潜在故障风险，建议尽快更换"
+    affected_components:
+      - "物理硬盘"
+    quick_check: "smartctl -a /dev/sdX; smartctl -l error /dev/sdX"
+    dedup_extract: "(?:/dev/|disk|盘)\\s*(\\S+)"
+    recovery_regex: "SMART.*pass|SMART.*ok|smartctl.*no.*error|SMART.*正常"
+    recovery_name: "SMART自检通过"
+
+  - name: "SSD寿命不足"
+    level: warning
+    regex: "SSD.*life|寿命不足|remaining.*life|wear.*level|Wear_Leveling|Media_Wearout|寿命.*剩余|SSD.*wear|寿命.*低于|life.*low|life.*threshold"
+    description: "SSD剩余寿命不足，建议规划更换"
+    affected_components:
+      - "SSD硬盘"
+    quick_check: "smartctl -a /dev/sdX | grep Wear; smartctl -a /dev/sdX | grep Life"
+    dedup_extract: "(?:/dev/|disk|盘|SSD)\\s*(\\S+)"
+    recovery_regex: "SSD.*replaced|SSD.*更换|盘.*更换.*完成"
+    recovery_name: "SSD更换完成"
+
+  - name: "I/O阻塞-超时"
+    level: warning
+    regex: "I/O timeout|io_timeout|IO_TIMEOUT|timeout.*10s|abort.*command|ABORT_CMD|EH_THREAD_RESET|error_handler.*reset|I/O.*block|I/O.*hang|io_enter_error_queue"
+    description: "磁盘I/O超时或阻塞，SMTX OS 6.1会自动检测并可能强制下线故障盘"
+    affected_components:
+      - "磁盘I/O"
+      - "HBA/RAID卡"
+    quick_check: "dmesg | grep -i timeout; dmesg | grep -i abort; iostat -x 1"
+    dedup_extract: "(?:dev|device)\\s+(\\S+)"
+    recovery_regex: "I/O.*resume|I/O.*recover|timeout.*clear|I/O.*恢复"
+    recovery_name: "I/O阻塞恢复"
+
+  - name: "节点CPU高负载"
+    level: warning
+    regex: "CPU.*usage.*high|CPU.*overload|cpu.*load.*high|CPU使用率.*高|cpu.*threshold.*exceeded|CPU.*100%"
+    description: "节点CPU使用率持续过高，可能影响虚拟机性能"
+    affected_components:
+      - "节点CPU"
+      - "虚拟机性能"
+    quick_check: "top; CloudTower → 节点 → CPU监控"
+    recovery_regex: "CPU.*normal|CPU.*恢复|cpu.*usage.*low"
+    recovery_name: "CPU负载恢复"
+
+  - name: "节点内存高使用"
+    level: warning
+    regex: "memory.*usage.*high|内存使用率.*高|OOM|out of memory|oom-killer|Cannot allocate memory|memory.*threshold.*exceeded|内存.*不足"
+    description: "节点内存使用率过高或触发OOM，可能导致虚拟机被杀"
+    affected_components:
+      - "节点内存"
+      - "虚拟机稳定性"
+    quick_check: "free -h; dmesg | grep -i oom; CloudTower → 节点 → 内存监控"
+    recovery_regex: "memory.*normal|内存.*恢复|OOM.*clear|memory.*usage.*low"
+    recovery_name: "内存使用恢复"
+
+  - name: "存储空间不足"
+    level: warning
+    regex: "No space left|disk.*full|storage.*full|空间不足|存储.*不足|inode.*full|No inode|存储容量.*阈值|storage.*threshold|磁盘使用率.*高"
+    description: "节点存储空间不足，可能导致虚拟机无法写入数据"
+    affected_components:
+      - "ZBS存储集群"
+      - "虚拟机数据"
+    quick_check: "df -h; zbs-node cluster_capacity; CloudTower → 存储"
+    dedup_extract: "(?:on|device|分区)\\s*(\\S+)"
+    recovery_regex: "space.*available|空间.*释放|存储.*充足|disk.*freed"
+    recovery_name: "存储空间恢复"
+
+  - name: "ZBS存储集群异常"
+    level: warning
+    regex: "zbs.*error|zbs.*warn|ZBS.*异常|ZBS.*告警|cluster.*unhealthy|集群.*异常|集群.*不健康|zbs-node.*error|zbs.*connect.*fail"
+    description: "ZBS分布式存储组件异常，可能影响数据读写"
+    affected_components:
+      - "ZBS存储集群"
+    quick_check: "zbs-node cluster_status; zbs-node list_disks; CloudTower → 集群"
+    recovery_regex: "zbs.*normal|ZBS.*恢复|cluster.*healthy|集群.*健康"
+    recovery_name: "ZBS集群恢复"
+
+  - name: "网络链路异常"
+    level: warning
+    regex: "link.*down|网络.*断开|bond.*down|nic.*down|eth.*down|network.*unreachable|connection.*refused|网络.*不通|链路.*故障|netdev.*watchdog"
+    description: "节点网络链路异常，可能影响存储副本同步和虚拟机网络"
+    affected_components:
+      - "物理网络"
+      - "存储副本同步"
+      - "虚拟机网络"
+    quick_check: "ip link show; ethtool <nic>; ping <peer-ip>; CloudTower → 网络"
+    dedup_extract: "(?:eth|bond|nic|en[osp])\\S+"
+    recovery_regex: "link.*up|网络.*恢复|bond.*up|nic.*up|connection.*established"
+    recovery_name: "网络链路恢复"
+
+  - name: "数据巡检异常-静默损坏"
+    level: warning
+    regex: "Generation.*mismatch|Generation.*inconsistent|checksum.*mismatch|data.*corruption|静默损坏|数据不一致|data.*patrol.*error|scrub.*error|数据巡检.*异常"
+    description: "数据巡检检测到副本数据不一致（静默损坏），系统将自动触发数据恢复"
+    affected_components:
+      - "数据完整性"
+      - "ZBS存储集群"
+    quick_check: "zbs-node verify_status; CloudTower → 数据巡检"
+    dedup_extract: "(?:disk|volume|卷|盘)\\s*(\\S+)"
+    recovery_regex: "Generation.*match|数据一致|corruption.*repair|数据恢复.*完成|scrub.*complete"
+    recovery_name: "数据一致性恢复"
+
+  - name: "HBA/RAID卡异常"
+    level: warning
+    regex: "HBA.*error|RAID.*controller.*error|mpt.*error|megasas.*error|lsi.*error|HBA.*reset|RAID卡.*故障|RAID卡.*异常|controller.*reset|hba.*fault"
+    description: "HBA/RAID卡异常，该卡下所有磁盘可能受影响，注意区分单盘故障还是卡故障"
+    affected_components:
+      - "HBA/RAID卡"
+      - "该卡下所有磁盘"
+    quick_check: "lspci | grep -i raid; dmesg | grep -i mpt; dmesg | grep -i mega"
+    dedup_extract: "(?:host\\d+|pci\\S+)"
+    recovery_regex: "HBA.*normal|RAID.*recover|controller.*online|HBA.*恢复"
+    recovery_name: "HBA/RAID卡恢复"
+
+  - name: "CloudTower管理平台异常"
+    level: warning
+    regex: "CloudTower.*error|CloudTower.*unavailable|CloudTower.*连接失败|tower.*disconnect|ct.*service.*down|tower.*异常"
+    description: "CloudTower管理平台异常，可能影响集群监控和告警通知"
+    affected_components:
+      - "CloudTower"
+      - "集群监控"
+    quick_check: "systemctl status cloudtower; CloudTower UI 访问测试"
+    recovery_regex: "CloudTower.*online|tower.*connect|CloudTower.*恢复|ct.*service.*running"
+    recovery_name: "CloudTower恢复"
+
+  # ============================================================
+  #  🟡 INFO — 关注：记录但不紧急
+  # ============================================================
+
+  - name: "虚拟机状态变更"
+    level: info
+    regex: "vm.*poweroff|vm.*poweron|vm.*shutdown|vm.*reboot|vm.*create|vm.*delete|虚拟机.*关机|虚拟机.*开机|虚拟机.*创建|虚拟机.*删除"
+    description: "虚拟机生命周期事件（开/关机/创建/删除）"
+    affected_components:
+      - "虚拟机"
+    quick_check: "CloudTower → 虚拟机"
+    dedup_extract: "(?:vm|VM|虚拟机)\\s*(\\S+)"
+
+  - name: "集群配置变更"
+    level: info
+    regex: "cluster.*config.*change|集群.*配置.*变更|cluster.*setting.*modify|license.*change|License.*变更"
+    description: "集群配置变更事件"
+    affected_components:
+      - "集群配置"
+    quick_check: "CloudTower → 集群 → 配置历史"
+    dedup_extract: "(?:by|from|管理员)\\s*(\\S+)"
+
+  - name: "管理员操作"
+    level: info
+    regex: "admin.*login|管理员.*登录|user.*login.*success|ssh.*session.*opened|session.*opened.*user"
+    description: "管理员登录或SSH会话建立"
+    affected_components:
+      - "管理平面"
+    quick_check: "last; /var/log/secure"
+    dedup_extract: "(?:user|用户|管理员)\\s*(\\S+)"

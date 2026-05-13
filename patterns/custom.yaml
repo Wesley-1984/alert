@@ -1,0 +1,70 @@
+# ==========================================
+# 自定义告警规则 - custom.yaml
+# ==========================================
+# 此文件中的规则会自动加载并应用到 ALL 设备（无论锐捷还是华为）
+#
+# 添加规则步骤：
+#   1. 在下方 patterns 列表中添加你的规则
+#   2. 保存文件，容器会自动重新加载（需要重启容器）
+#   3. 查看容器日志确认规则已加载：
+#      docker logs switch-monitor 2>&1 | grep "custom"
+#
+# 规则格式说明：
+#   name:              告警名称（必填，用于通知标题和去重）
+#   level:             告警级别（必填）：critical / warning / info
+#   regex:             匹配正则（必填，不区分大小写）
+#   description:       告警描述（必填）
+#   affected_components: 受影响组件列表（选填）
+#   quick_check:       排查命令（选填）
+#   recovery_regex:    恢复匹配正则（选填，匹配恢复日志）
+#   recovery_name:     恢复通知标题（选填，配置了 recovery_regex 时建议填写）
+#
+# ⚠️ 注意事项：
+#   - regex 不区分大小写（已内置 re.IGNORECASE）
+#   - 多个匹配条件用 | 分隔（正则"或"语义）
+#   - 特殊字符需要转义：. → \.  * → \*  ( → \(  ) → \)
+#   - name 必须全局唯一，不能和 ruijie.yaml / huawei.yaml 中的重名
+#   - 建议在 name 中加上前缀区分，如 "自定义-xxx"
+
+patterns:
+
+  # ====== 示例1：自定义端口安全告警 ======
+  # - name: "自定义-端口安全违规"
+  #   level: warning
+  #   regex: "port-security.*violation|SECURITY-3-VIOLATION|port security.*violate"
+  #   description: "端口安全策略违规，可能有非法设备接入"
+  #   affected_components:
+  #     - "端口安全"
+  #     - "接入层"
+  #   quick_check: "show port-security interface"
+  #   recovery_regex: "port-security.*recover|SECURITY-6-RECOVER"
+  #   recovery_name: "端口安全恢复"
+
+  # ====== 示例2：自定义VPN隧道告警 ======
+  # - name: "自定义-VPN隧道断开"
+  #   level: critical
+  #   regex: "IPSEC-3-VPN_DOWN|IKE.*sa.*down|tunnel.*down|VPN.*disconnect"
+  #   description: "VPN/IPSec隧道断开，远程站点连接中断"
+  #   affected_components:
+  #     - "VPN隧道"
+  #     - "远程站点连通性"
+  #   quick_check: "show crypto ipsec sa"
+  #   recovery_regex: "IPSEC-6-VPN_UP|IKE.*sa.*up|tunnel.*up|VPN.*established"
+  #   recovery_name: "VPN隧道恢复"
+
+  # ====== 示例3：自定义日志异常告警 ======
+  # - name: "自定义-认证服务器不可达"
+  #   level: critical
+  #   regex: "RADIUS-3-NORESPONSE|TACACS\+.*timeout|AAA.*server.*unreachable|authentication.*timeout"
+  #   description: "认证服务器(RADIUS/TACACS+)不可达，可能导致无法登录"
+  #   affected_components:
+  #     - "AAA认证"
+  #     - "管理平面"
+  #   quick_check: "show aaa server"
+  #   recovery_regex: "RADIUS-6-RESPONSE|TACACS\+.*alive|AAA.*server.*reachable"
+  #   recovery_name: "认证服务器恢复"
+
+  # ========================================
+  # 在上方添加你的自定义规则
+  # 取消注释并修改即可使用
+  # ========================================

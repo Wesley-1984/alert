@@ -1,0 +1,339 @@
+# 锐捷交换机日志告警匹配规则
+# vendor: ruijie
+# 锐捷交换机日志格式示例：
+#   %LINK-3-UPDOWN: Interface GigabitEthernet0/1, changed state to down
+#   %LINEPROTO-5-UPDOWN: Line protocol on Interface GigabitEthernet0/1, changed state to down
+#   %SPANTREE-2-RX_BPDU: Received BPDU on port Gi0/1 in instance 0
+#   %SYS-5-CONFIG_I: Configured from console by admin
+#   %SEC_LOGIN-5-LOGIN_SUCCESS: Login success for user admin
+#   %VSU-3-VSU_SPLIT: VSU domain has split
+#   %TRANSCEIVER-3-TRANSCEIVER_FAIL: Transceiver on Gi0/1 failed
+#
+# dedup_extract 说明（可选字段）：
+#   从日志中提取变量成分加入去重 key，避免不同端口/IP 的同类告警被误去重
+#   格式：正则表达式，取第一个捕获组 () 的内容
+#   例：dedup_extract: "Interface (\\S+)" → 从日志中提取端口号如 GigabitEthernet0/1
+
+patterns:
+  # ==================== 紧急告警 (critical) ====================
+
+  - name: "端口状态变更-Down"
+    level: critical
+    regex: "LINK-3-UPDOWN.*changed state to down"
+    description: "端口物理链路断开"
+    keywords: ["link", "down", "updown"]
+    affected_components: ["物理端口", "光模块", "网线", "对端设备"]
+    quick_check: "show interface status | include down"
+    dedup_extract: "Interface ([^\\s,]+)"
+    # 恢复匹配：同一端口重新 up
+    recovery_regex: "LINK-3-UPDOWN.*changed state to up"
+    recovery_name: "端口状态恢复-Up"
+
+  - name: "链路协议Down"
+    level: critical
+    regex: "LINEPROTO-5-UPDOWN.*changed state to down"
+    description: "端口协议层断开（物理可能仍up）"
+    keywords: ["lineproto", "down"]
+    affected_components: ["端口协商", "VLAN配置", "STP", "对端配置"]
+    quick_check: "show interface GigabitEthernet0/X"
+    dedup_extract: "Interface ([^\\s,]+)"
+    recovery_regex: "LINEPROTO-5-UPDOWN.*changed state to up"
+    recovery_name: "链路协议恢复-Up"
+
+  - name: "STP-BPDU异常"
+    level: critical
+    regex: "SPANTREE-2-RX_BPDU|BPDU guard|BPDU filtering"
+    description: "收到异常BPDU或BPDU防护触发，可能导致端口被err-disable"
+    keywords: ["bpdu", "spantree", "stp"]
+    affected_components: ["STP拓扑", "端口状态", "二层环路"]
+    quick_check: "show spanning-tree detail"
+    dedup_extract: "(?:port|on) (\\S+)"
+
+  - name: "环路检测"
+    level: critical
+    regex: "loopback detected|LOOP-DETECT|loop guard|loop detected"
+    description: "检测到环路，可能引发广播风暴"
+    keywords: ["loop", "loopback", "loop-detect"]
+    affected_components: ["二层网络", "广播域", "所有下游设备"]
+    quick_check: "show loopback-detect"
+    dedup_extract: "(?:on|port) (\\S+)"
+
+  - name: "电源异常"
+    level: critical
+    regex: "POWER-3-PSFAIL|power supply failed|POWER-3"
+    description: "电源模块故障"
+    keywords: ["power", "psfail"]
+    affected_components: ["电源模块", "整机供电"]
+    quick_check: "show power"
+    dedup_extract: "(?:power supply|Power) (\\S+)"
+    recovery_regex: "POWER-6-PSOK|power supply ok|POWER-6"
+    recovery_name: "电源恢复正常"
+
+  - name: "风扇故障"
+    level: critical
+    regex: "FAN-3-FANFAIL|fan failed|FAN-3"
+    description: "风扇故障，设备散热受影响"
+    keywords: ["fan", "fanfail"]
+    affected_components: ["散热系统", "设备温度"]
+    quick_check: "show fan"
+    dedup_extract: "(?:fan|Fan) (\\S+)"
+    recovery_regex: "FAN-6-FANOK|fan ok|FAN-6"
+    recovery_name: "风扇恢复正常"
+
+  - name: "VSU分裂"
+    level: critical
+    regex: "VSU-3-VSU_SPLIT|VSU.*split|VSU domain.*split|VSU-3-SPLIT"
+    description: "VSU（虚拟交换单元）域分裂，可能导致双主冲突和网络中断"
+    keywords: ["vsu", "split"]
+    affected_components: ["VSU域", "所有业务口", "MAC/ARP表", "跨设备链路聚合"]
+    quick_check: "show vsu status"
+    recovery_regex: "VSU-6-VSU_MERGE|VSU.*merge|VSU domain.*merged|VSU-6-MERGE"
+    recovery_name: "VSU合并恢复"
+
+  - name: "VSU链路断开"
+    level: critical
+    regex: "VSU-3-VSL_DOWN|VSU.*VSL.*down|VSL link.*down|VSU-3-VSL"
+    description: "VSU互联链路（VSL）断开，VSU可能分裂"
+    keywords: ["vsu", "vsl", "down"]
+    affected_components: ["VSU互联", "控制面同步", "跨机转发"]
+    quick_check: "show vsu link"
+    dedup_extract: "VSL[^\\w]*(\\S+)"
+    recovery_regex: "VSU-6-VSL_UP|VSU.*VSL.*up|VSL link.*up"
+    recovery_name: "VSU链路恢复"
+
+  - name: "光模块故障"
+    level: critical
+    regex: "TRANSCEIVER-3-TRANSCEIVER_FAIL|transceiver.*fail|SFP.*fail|SFP.*error|SFP-3|TRANSCEIVER-3|transceiver.*not present|module.*invalid"
+    description: "光模块故障或不兼容，端口将不可用"
+    keywords: ["transceiver", "sfp", "module", "fail"]
+    affected_components: ["光模块", "端口光信号", "链路连通性"]
+    quick_check: "show interface transceiver | include Fail"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "TRANSCEIVER-6-TRANSCEIVER_OK|transceiver.*ok|SFP.*ok|module.*inserted|TRANSCEIVER-6"
+    recovery_name: "光模块恢复正常"
+
+  - name: "光模块信号异常"
+    level: warning
+    regex: "TRANSCEIVER-4-RX_POWER_LOW|transceiver.*rx.*low|rx power.*low|SFP.*rx.*low|optical.*low|TRANSCEIVER-4-TX_POWER_LOW|tx power.*low"
+    description: "光模块接收/发送光功率过低，可能即将断链"
+    keywords: ["transceiver", "power", "rx", "tx", "optical"]
+    affected_components: ["光信号质量", "误码率", "链路稳定性"]
+    quick_check: "show interface transceiver detail"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "TRANSCEIVER-6-POWER_NORMAL|power.*normal|rx power.*normal"
+    recovery_name: "光功率恢复正常"
+
+  # ==================== 警告 (warning) ====================
+
+  - name: "CPU利用率高"
+    level: warning
+    regex: "CPU utilization.*[8-9][0-9]%|CPU utilization.*100%|CPU-HP-ALARM|cpu usage exceed"
+    description: "CPU利用率过高"
+    keywords: ["cpu", "utilization"]
+    affected_components: ["控制平面", "协议进程", "管理访问"]
+    quick_check: "show cpu"
+    recovery_regex: "CPU utilization.*[0-4][0-9]%|cpu usage.*normal|CPU-6-NORMAL"
+    recovery_name: "CPU利用率恢复正常"
+
+  - name: "内存利用率高"
+    level: warning
+    regex: "memory usage.*exceed|memory.*high|MEM-ALARM"
+    description: "内存利用率过高"
+    keywords: ["memory", "mem"]
+    affected_components: ["路由表", "ARP表", "FIB表"]
+    quick_check: "show memory"
+    recovery_regex: "memory usage.*normal|memory.*ok|MEM-6-NORMAL"
+    recovery_name: "内存利用率恢复正常"
+
+  - name: "MAC地址漂移"
+    level: warning
+    regex: "MACFLAP|MAC flapping|mac move|flapping between"
+    description: "MAC地址在多个端口间漂移，可能存在二层环路"
+    keywords: ["macflap", "flapping", "mac move"]
+    affected_components: ["MAC表", "二层转发", "网络环路"]
+    quick_check: "show mac address-table dynamic | include <mac>"
+    dedup_extract: "([0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4})"
+
+  - name: "ARP地址冲突"
+    level: warning
+    regex: "ARP-4-DUPADDR|ARP.*duplicate|duplicate.*address.*sourced|IP地址冲突|ARP冲突"
+    description: "检测到ARP地址冲突，网络中存在IP地址重复使用"
+    keywords: ["arp", "duplicate", "dupaddr"]
+    affected_components: ["ARP表", "IP地址规划", "网络通信"]
+    quick_check: "show arp | include <冲突IP>; show logging | include DUPADDR"
+    dedup_extract: "Duplicate address (\\S+)"
+    recovery_regex: "ARP.*resolved|ARP.*cleared|冲突.*消除|duplicate.*resolved"
+    recovery_name: "ARP冲突消除"
+
+  - name: "FDB表溢出"
+    level: warning
+    regex: "FDB-4|FDB table full|mac table full"
+    description: "MAC地址表满，可能导致泛洪"
+    keywords: ["fdb", "mac table"]
+    affected_components: ["二层转发", "广播域"]
+    quick_check: "show mac address-table count"
+
+  - name: "端口Err-Disable"
+    level: warning
+    regex: "err-disable|ERR_DISABLE|errdisabled"
+    description: "端口因安全策略被err-disable"
+    keywords: ["err-disable", "errdisabled"]
+    affected_components: ["端口安全", "BPDU Guard", "风暴控制"]
+    quick_check: "show interface status err-disabled"
+    dedup_extract: "(?:interface|port) (\\S+)"
+
+  - name: "温度告警"
+    level: warning
+    regex: "temperature.*high|TEMP-ALARM|thermal alarm|over temperature"
+    description: "设备温度过高"
+    keywords: ["temperature", "temp", "thermal"]
+    affected_components: ["散热系统", "设备寿命", "芯片稳定性"]
+    quick_check: "show temperature"
+    recovery_regex: "temperature.*normal|TEMP-NORMAL|thermal.*normal"
+    recovery_name: "温度恢复正常"
+
+  - name: "OSPF邻居断开"
+    level: warning
+    regex: "OSPF-5-ADJCHG.*Down|OSPF.*nbr.*Down|ospf neighbor down"
+    description: "OSPF邻居关系断开"
+    keywords: ["ospf", "adjchg", "neighbor down"]
+    affected_components: ["路由域", "三层连通性", "业务流量"]
+    quick_check: "show ip ospf neighbor"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "OSPF-5-ADJCHG.*Full|OSPF.*nbr.*Up|ospf neighbor up|Loading to Full"
+    recovery_name: "OSPF邻居恢复"
+
+  - name: "BGP邻居断开"
+    level: warning
+    regex: "BGP-3-NOTIFICATION|BGP.*Down|bgp session down"
+    description: "BGP会话断开"
+    keywords: ["bgp", "notification"]
+    affected_components: ["外部路由", "跨域连通性"]
+    quick_check: "show ip bgp summary"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "BGP-5-ADJCHANGE.*Up|BGP.*Established|bgp session up"
+    recovery_name: "BGP邻居恢复"
+
+  - name: "光模块温度过高"
+    level: warning
+    regex: "TRANSCEIVER-4-TEMP_HIGH|transceiver.*temp.*high|SFP.*temperature.*high"
+    description: "光模块温度过高，可能损坏模块"
+    keywords: ["transceiver", "temperature", "sfp"]
+    affected_components: ["光模块寿命", "光信号质量"]
+    quick_check: "show interface transceiver detail | include Temp"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "TRANSCEIVER-6-TEMP_NORMAL|transceiver.*temp.*normal"
+    recovery_name: "光模块温度恢复正常"
+
+  # ==================== 关注 (info) ====================
+
+  - name: "配置变更"
+    level: info
+    regex: "SYS-5-CONFIG_I|Configured from|configuration changed|commit"
+    description: "设备配置发生变更"
+    keywords: ["config", "configured", "commit"]
+    affected_components: ["运行配置", "启动配置"]
+    quick_check: "show running-config diff"
+    dedup_extract: "(?:by|from) (\\S+)"
+
+  - name: "登录成功"
+    level: info
+    regex: "LOGIN_SUCCESS|login success|logged in"
+    description: "用户登录成功"
+    keywords: ["login", "logged in"]
+    affected_components: ["管理平面"]
+    quick_check: "show users"
+    dedup_extract: "(?:user|for) (\\S+)"
+
+  - name: "登录失败"
+    level: info
+    regex: "LOGIN_FAIL|login failed|authentication failed|login fail"
+    description: "用户登录失败，可能存在暴力破解"
+    keywords: ["login fail", "authentication failed"]
+    affected_components: ["管理平面安全"]
+    quick_check: "show logging | include login"
+    dedup_extract: "(?:user|from) (\\S+)"
+
+  - name: "ACL匹配/拒绝"
+    level: info
+    regex: "ACL-LOG|ACL.*deny|access-list.*deny|ACL match"
+    description: "ACL规则命中，可能有流量被拒绝"
+    keywords: ["acl", "deny", "access-list"]
+    affected_components: ["安全策略", "流量路径"]
+    quick_check: "show access-lists counters"
+    dedup_extract: "(?:interface|on) (\\S+)"
+
+  # ==================== 无线AC专属告警 (WS6816 / RGOS 11.9) ====================
+  # 锐捷无线AC (WS6816) 运行 RGOS 11.9(2)B2P11
+  # 以下规则适用于无线控制器场景，AC专有日志格式：
+  #   %CAPWAP-3-TUNNEL_DOWN: CAPWAP tunnel down for AP xxx
+  #   %WLAN-3-AP_OFFLINE: AP xxx went offline
+  #   %RADIO-4-RF_INTERFERENCE: Radio interference detected on AP xxx
+
+  - name: "AP离线"
+    level: critical
+    regex: "AP_OFFLINE|AP.*offline|AP.*down|AP.*disconnect|AP.*lost|ap.*离线|AP.*断开"
+    description: "无线AP离线，该AP覆盖区域的无线服务中断"
+    affected_components: ["无线AP", "无线覆盖", "用户接入"]
+    quick_check: "show ap config summary | include offline; show ap status"
+    dedup_extract: "(?:AP|ap)\\s+(\\S+)"
+    recovery_regex: "AP_ONLINE|AP.*online|AP.*connect|AP.*up|AP.*在线|AP.*注册"
+    recovery_name: "AP恢复在线"
+
+  - name: "CAPWAP隧道断开"
+    level: critical
+    regex: "CAPWAP.*tunnel.*down|CAPWAP.*DOWN|capwap.*disconnect|CAPWAP-3|CAPWAP.*断开"
+    description: "AP与AC之间的CAPWAP隧道断开，AP将无法被管理"
+    affected_components: ["CAPWAP隧道", "AP管理", "无线配置下发"]
+    quick_check: "show capwap client summary; show capwap tunnel"
+    dedup_extract: "(?:AP|ap)\\s+(\\S+)"
+    recovery_regex: "CAPWAP.*tunnel.*up|CAPWAP.*UP|capwap.*connect|CAPWAP.*建立"
+    recovery_name: "CAPWAP隧道恢复"
+
+  - name: "射频故障"
+    level: critical
+    regex: "RADIO.*fail|RADIO.*error|射频.*故障|radio.*down|RADIO-3|射频.*异常"
+    description: "AP射频模块故障，该射频无法提供无线服务"
+    affected_components: ["AP射频", "无线覆盖", "信道服务"]
+    quick_check: "show ap radio summary; show ap radio config"
+    dedup_extract: "(?:AP|ap|radio)\\s+(\\S+)"
+    recovery_regex: "RADIO.*up|radio.*normal|射频.*恢复|RADIO.*ok"
+    recovery_name: "射频恢复"
+
+  - name: "射频干扰"
+    level: warning
+    regex: "RF_INTERFERENCE|rf.*interference|射频.*干扰|channel.*interference|RADIO-4-INTERFERENCE|干扰.*检测|air.*quality.*poor"
+    description: "检测到射频干扰，可能影响无线用户体验"
+    affected_components: ["射频质量", "用户体验", "信道规划"]
+    quick_check: "show ap radio interference; show wireless air-quality"
+    dedup_extract: "(?:AP|ap)\\s+(\\S+)"
+    recovery_regex: "interference.*clear|干扰.*消除|air.*quality.*good"
+    recovery_name: "射频干扰消除"
+
+  - name: "AC许可证不足"
+    level: warning
+    regex: "LICENSE.*exceed|LICENSE.*insufficient|license.*not.*enough|AP.*license.*exceed|许可.*不足|License.*超限|AP数量.*超限"
+    description: "AC管理的AP数量接近或超过License限制，新AP可能无法注册"
+    affected_components: ["AC许可证", "AP容量", "新AP注册"]
+    quick_check: "show license; show ap count"
+    recovery_regex: "license.*updated|License.*更新|AP.*license.*sufficient"
+    recovery_name: "许可证容量充足"
+
+  - name: "AP固件升级失败"
+    level: warning
+    regex: "AP.*upgrade.*fail|AP.*update.*fail|AP.*firmware.*fail|AP.*版本.*失败|AP.*升级.*失败|upgrade.*error"
+    description: "AP固件升级失败，AP可能运行在旧版本或不稳定状态"
+    affected_components: ["AP固件", "AP稳定性", "功能兼容性"]
+    quick_check: "show ap version; show ap upgrade status"
+    dedup_extract: "(?:AP|ap)\\s+(\\S+)"
+    recovery_regex: "AP.*upgrade.*success|AP.*升级.*成功|AP.*version.*updated"
+    recovery_name: "AP固件升级成功"
+
+  - name: "无线用户认证失败"
+    level: warning
+    regex: "WLAN.*auth.*fail|wireless.*auth.*fail|802\\.1X.*fail|dot1x.*fail|无线.*认证.*失败|portal.*auth.*fail|RADIUS.*timeout.*wireless"
+    description: "无线用户认证失败，可能是RADIUS服务器异常或配置问题"
+    affected_components: ["无线认证", "RADIUS", "802.1X/Portal"]
+    quick_check: "show dot1x statistics; show radius server-group"
+    recovery_regex: "auth.*success|认证.*成功|RADIUS.*alive"
+    recovery_name: "无线认证恢复"

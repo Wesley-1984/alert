@@ -1,0 +1,259 @@
+# 华为交换机日志告警匹配规则
+# vendor: huawei
+# 华为交换机日志格式示例：
+#   %%01IFNET/4/LINK_STATE(l): Interface GigabitEthernet0/0/1 has turned into DOWN state.
+#   %%01SECE/4/ARPMISS(l): ARP miss speed exceeded the configured threshold on interface GE0/0/1.
+#   %%01OSPF/3/NBR_DOWN(l): Neighbor 10.1.1.1 state changed from Full to Down on interface GE0/0/1.
+#   %%01CFM/6/CFM_SAVE(l): Configuration was saved to flash memory.
+#   %%01DEVM/4/TRANSCEIVER_ABNORMAL(l): The transceiver on GE0/0/1 is abnormal.
+#
+# dedup_extract 说明（可选字段）：
+#   从日志中提取变量成分加入去重 key，避免不同端口/IP 的同类告警被误去重
+#   格式：正则表达式，取第一个捕获组 () 的内容
+
+patterns:
+  # ==================== 紧急告警 (critical) ====================
+
+  - name: "端口状态变更-Down"
+    level: critical
+    regex: "IFNET/4/LINK_STATE.*DOWN state|IFPDT/4/IF_STATE.*DOWN|Interface.*turned into DOWN"
+    description: "端口物理链路断开"
+    keywords: ["ifnet", "link_state", "down"]
+    affected_components: ["物理端口", "光模块", "网线", "对端设备"]
+    quick_check: "display interface GigabitEthernet 0/0/X"
+    dedup_extract: "Interface ([^\\s,]+)"
+    recovery_regex: "IFNET/4/LINK_STATE.*UP state|IFPDT/4/IF_STATE.*UP|Interface.*turned into UP"
+    recovery_name: "端口状态恢复-Up"
+
+  - name: "链路协议Down"
+    level: critical
+    regex: "IFNET/5/LINK_PRO.*DOWN|line protocol.*DOWN|IFPDT.*protocol.*down"
+    description: "端口协议层断开"
+    keywords: ["line protocol", "link_pro", "down"]
+    affected_components: ["端口协商", "VLAN", "STP", "对端配置"]
+    quick_check: "display interface brief"
+    dedup_extract: "Interface ([^\\s,]+)"
+    recovery_regex: "IFNET/5/LINK_PRO.*UP|line protocol.*UP"
+    recovery_name: "链路协议恢复-Up"
+
+  - name: "STP拓扑变更"
+    level: critical
+    regex: "MSTP/4/PORT_STATE.*discarding|MSTP/3/RECV|BPDU.*received|STP.*topology change|MSTP/4/LOOP"
+    description: "STP拓扑变更或收到异常BPDU"
+    keywords: ["mstp", "stp", "bpdu", "topology"]
+    affected_components: ["STP拓扑", "端口角色", "二层环路"]
+    quick_check: "display stp brief"
+    dedup_extract: "(?:port|interface) (\\S+)"
+
+  - name: "环路检测"
+    level: critical
+    regex: "L2IFPPI/4/MFLAPPING|MAC address flapping|loop detect|LOOPDETECT|L2IFPPI.*flapping"
+    description: "检测到MAC漂移或环路"
+    keywords: ["flapping", "loop", "l2ifppi"]
+    affected_components: ["二层网络", "广播域", "MAC表"]
+    quick_check: "display loop-detect"
+    dedup_extract: "([0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4})"
+
+  - name: "电源异常"
+    level: critical
+    regex: "DEVM/4/POWERABNORM|power supply.*fault|DEVM.*POWER.*fail|power abnormal"
+    description: "电源模块异常"
+    keywords: ["power", "devm", "powerabnorm"]
+    affected_components: ["电源模块", "整机供电"]
+    quick_check: "display device power"
+    dedup_extract: "(?:Power|power)\\s+(\\S+)"
+    recovery_regex: "DEVM/6/POWERRECOVER|power supply.*normal|power recover"
+    recovery_name: "电源恢复正常"
+
+  - name: "风扇故障"
+    level: critical
+    regex: "DEVM/4/FANABNORM|fan.*fault|DEVM.*FAN.*fail|fan abnormal"
+    description: "风扇故障"
+    keywords: ["fan", "devm", "fanabnorm"]
+    affected_components: ["散热系统", "设备温度"]
+    quick_check: "display device fan"
+    dedup_extract: "(?:Fan|fan)\\s+(\\S+)"
+    recovery_regex: "DEVM/6/FANRECOVER|fan.*normal|fan recover"
+    recovery_name: "风扇恢复正常"
+
+  - name: "堆叠分裂"
+    level: critical
+    regex: "HA/4/STACK_SPLIT|stack.*split|HALF.*SPLIT|CSS.*split"
+    description: "堆叠/CSS系统分裂，可能导致双主冲突"
+    keywords: ["stack", "split", "css"]
+    affected_components: ["堆叠系统", "所有业务口", "MAC/ARP表"]
+    quick_check: "display stack"
+    recovery_regex: "HA/6/STACK_RECOVER|stack.*recover|CSS.*merge"
+    recovery_name: "堆叠恢复"
+
+  - name: "光模块故障"
+    level: critical
+    regex: "DEVM/4/TRANSCEIVER_ABNORMAL|transceiver.*abnormal|SFP.*fail|SFP.*error|transceiver.*not present|module.*invalid|DEVM.*TRANSCEIVER.*fail|HWM/4/TRANSCEIVER"
+    description: "光模块故障或不兼容，端口将不可用"
+    keywords: ["transceiver", "sfp", "module", "abnormal"]
+    affected_components: ["光模块", "端口光信号", "链路连通性"]
+    quick_check: "display device transceiver"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "DEVM/6/TRANSCEIVER_RECOVER|transceiver.*recover|SFP.*ok|module.*inserted|transceiver.*present"
+    recovery_name: "光模块恢复正常"
+
+  - name: "光模块信号异常"
+    level: warning
+    regex: "FSP/4/RX_PWR_LOW|transceiver.*rx.*low|rx power.*low|SFP.*rx.*low|optical.*low|FSP/4/TX_PWR_LOW|tx power.*low|FSP.*power.*low|optical power.*below"
+    description: "光模块接收/发送光功率过低，可能即将断链"
+    keywords: ["transceiver", "power", "rx", "tx", "optical", "fsp"]
+    affected_components: ["光信号质量", "误码率", "链路稳定性"]
+    quick_check: "display interface transceiver detail"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "FSP/6/RX_PWR_NORMAL|transceiver.*power.*normal|rx power.*normal|optical.*normal"
+    recovery_name: "光功率恢复正常"
+
+  # ==================== 警告 (warning) ====================
+
+  - name: "CPU利用率高"
+    level: warning
+    regex: "DEVM/4/CPUOVERLOAD|CPU usage.*exceed|cpu.*overload|DEVM.*CPU.*high|CPU utilization.*[8-9][0-9]"
+    description: "CPU利用率过高"
+    keywords: ["cpu", "overload", "usage"]
+    affected_components: ["控制平面", "协议进程", "管理访问"]
+    quick_check: "display cpu-usage"
+    recovery_regex: "DEVM/6/CPURECOVER|CPU usage.*normal|cpu.*recover"
+    recovery_name: "CPU利用率恢复正常"
+
+  - name: "内存利用率高"
+    level: warning
+    regex: "DEVM/4/MEMOVERLOAD|memory usage.*exceed|memory.*overload|DEVM.*MEM.*high"
+    description: "内存利用率过高"
+    keywords: ["memory", "mem", "overload"]
+    affected_components: ["路由表", "ARP表", "转发表"]
+    quick_check: "display memory-usage"
+    recovery_regex: "DEVM/6/MEMRECOVER|memory usage.*normal|memory.*recover"
+    recovery_name: "内存利用率恢复正常"
+
+  - name: "MAC地址漂移"
+    level: warning
+    regex: "L2IFPPI/4/MFLAPPING|MAC address flapping|flapping between|mac move"
+    description: "MAC地址在多个端口间漂移"
+    keywords: ["flapping", "mflapping", "mac move"]
+    affected_components: ["MAC表", "二层转发", "网络环路"]
+    quick_check: "display mac-address flapping"
+    dedup_extract: "([0-9a-fA-F]{4}\\.[0-9a-fA-F]{4}\\.[0-9a-fA-F]{4})"
+
+  - name: "ARP攻击/风暴"
+    level: warning
+    regex: "SECE/4/ARPMISS|ARP miss.*threshold|ARP speed.*exceeded|ARP flood"
+    description: "ARP Miss速率超限或ARP攻击"
+    keywords: ["arpmiss", "arp", "sece"]
+    affected_components: ["ARP表", "CPU", "网关性能"]
+    quick_check: "display arp | count"
+    dedup_extract: "(?:interface|on) (\\S+)"
+
+  - name: "ARP地址冲突"
+    level: warning
+    regex: "ARP/4/DUP_ADDR|ARP.*duplicate|duplicate.*IP.*detected|IP地址冲突|ARP冲突|冲突IP"
+    description: "检测到ARP地址冲突，网络中存在IP地址重复使用"
+    keywords: ["arp", "duplicate", "dup_addr"]
+    affected_components: ["ARP表", "IP地址规划", "网络通信"]
+    quick_check: "display arp | include <冲突IP>; display logging | include DUP_ADDR"
+    dedup_extract: "(?:duplicate|冲突).*?(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "ARP.*resolved|ARP.*cleared|冲突.*消除|duplicate.*resolved"
+    recovery_name: "ARP冲突消除"
+
+  - name: "端口Err-Down"
+    level: warning
+    regex: "IFNET/4/ERR_DOWN|error-down|err-down|port-security.*violation"
+    description: "端口因安全策略被err-down"
+    keywords: ["err_down", "error-down", "port-security"]
+    affected_components: ["端口安全", "风暴控制", "BPDU Guard"]
+    quick_check: "display interface err-down"
+    dedup_extract: "(?:interface|port) (\\S+)"
+
+  - name: "温度告警"
+    level: warning
+    regex: "DEVM/4/TEMP_OVER|temperature.*exceed|over temperature|thermal.*alarm"
+    description: "设备温度过高"
+    keywords: ["temp", "temperature", "thermal"]
+    affected_components: ["散热系统", "芯片稳定性"]
+    quick_check: "display device temperature"
+    recovery_regex: "DEVM/6/TEMP_RECOVER|temperature.*normal|thermal.*normal"
+    recovery_name: "温度恢复正常"
+
+  - name: "OSPF邻居断开"
+    level: warning
+    regex: "OSPF/3/NBR_DOWN|OSPF.*neighbor.*Down|OSPF.*adj.*Down|nbr_down"
+    description: "OSPF邻居关系断开"
+    keywords: ["ospf", "nbr_down", "neighbor"]
+    affected_components: ["路由域", "三层连通性", "业务流量"]
+    quick_check: "display ospf peer brief"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "OSPF/5/NBR_UP|OSPF.*neighbor.*Full|OSPF.*Loading to Full|nbr_up"
+    recovery_name: "OSPF邻居恢复"
+
+  - name: "BGP邻居断开"
+    level: warning
+    regex: "BGP/3/PEER_DOWN|BGP.*peer.*Down|bgp.*session.*down"
+    description: "BGP会话断开"
+    keywords: ["bgp", "peer_down"]
+    affected_components: ["外部路由", "跨域连通性"]
+    quick_check: "display bgp peer"
+    dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
+    recovery_regex: "BGP/5/PEER_UP|BGP.*Established|bgp session up"
+    recovery_name: "BGP邻居恢复"
+
+  - name: "VRRP主备切换"
+    level: warning
+    regex: "VRRP/4/STATECHANGE|VRRP.*state.*changed|vrrp.*master"
+    description: "VRRP网关发生主备切换"
+    keywords: ["vrrp", "statechange", "master"]
+    affected_components: ["默认网关", "终端流量路径"]
+    quick_check: "display vrrp brief"
+    dedup_extract: "(?:interface|Interface) (\\S+)"
+
+  - name: "光模块温度过高"
+    level: warning
+    regex: "DEVM/4/TRANSCEIVER_TEMP|transceiver.*temp.*high|SFP.*temperature.*high|HWM/4/SFP_TEMP"
+    description: "光模块温度过高，可能损坏模块"
+    keywords: ["transceiver", "temperature", "sfp"]
+    affected_components: ["光模块寿命", "光信号质量"]
+    quick_check: "display interface transceiver detail | include Temp"
+    dedup_extract: "(?:on|interface) (\\S+)"
+    recovery_regex: "DEVM/6/TRANSCEIVER_TEMP_RECOVER|transceiver.*temp.*normal"
+    recovery_name: "光模块温度恢复正常"
+
+  # ==================== 关注 (info) ====================
+
+  - name: "配置变更"
+    level: info
+    regex: "CFM/6/CFM_SAVE|CFM/4/CFM_CHANGE|Configuration was saved|configuration changed"
+    description: "设备配置发生变更"
+    keywords: ["cfm", "save", "change", "configuration"]
+    affected_components: ["运行配置", "启动配置"]
+    quick_check: "display current-configuration"
+    dedup_extract: "(?:by|from) (\\S+)"
+
+  - name: "登录成功"
+    level: info
+    regex: "SSH/6/SSH_LOGIN|TELNET/6/TTY_LOGIN|login.*success|logged in|AAA/6/LOCALUSER_LOGIN"
+    description: "用户登录成功"
+    keywords: ["login", "logged in", "ssh_login"]
+    affected_components: ["管理平面"]
+    quick_check: "display users"
+    dedup_extract: "(?:user|from) (\\S+)"
+
+  - name: "登录失败"
+    level: info
+    regex: "SSH/6/SSH_LOGIN_FAIL|login.*fail|authentication.*fail|AAA/6/LOCALUSER_LOGIN_FAIL"
+    description: "用户登录失败"
+    keywords: ["login fail", "authentication fail"]
+    affected_components: ["管理平面安全"]
+    quick_check: "display aaa online-user"
+    dedup_extract: "(?:user|from) (\\S+)"
+
+  - name: "ACL命中"
+    level: info
+    regex: "ACL/4/ACL_MATCH|ACL.*deny|traffic.*deny|traffic-filter.*deny"
+    description: "ACL规则命中，流量被拒绝"
+    keywords: ["acl", "deny", "traffic"]
+    affected_components: ["安全策略", "流量路径"]
+    quick_check: "display acl resource"
+    dedup_extract: "(?:interface|on) (\\S+)"
