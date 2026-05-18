@@ -82,68 +82,68 @@ patterns:
 
   - name: "HA主备切换"
     level: critical
-    regex: "HA.*切换|HA.*failover|HA.*switch|主备切换|HA_STATE|HA.*active.*standby|HA.*主.*备|主机切换为备机|备机切换为主机|HA倒换"
+    regex: "AF.*HA.*切换|AF.*HA.*failover|AF.*HA.*switch|AF.*主备切换|AF.*HA_STATE|AF.*HA.*active.*standby|AF.*HA.*主.*备|AF.*主机切换为备机|AF.*备机切换为主机|AF.*HA倒换"
     description: "防火墙HA发生主备切换，可能导致业务短暂中断"
     keywords: ["HA", "切换", "failover"]
     affected_components: ["双机热备", "业务连续性", "ARP收敛"]
     quick_check: "AF控制台 → 系统日志 → 查看HA状态"
-    recovery_regex: "HA.*恢复|HA.*stable|HA.*正常|HA状态稳定|主备稳定"
+    recovery_regex: "AF.*HA.*恢复|AF.*HA.*stable|AF.*HA.*正常|AF.*HA状态稳定|AF.*主备稳定"
     recovery_name: "HA状态稳定"
 
   - name: "防火墙接口Down"
     level: critical
-    regex: "接口.*down|接口.*断开|interface.*down|链路.*down|port.*down|eth.*down|物理接口.*异常|接口状态.*DOWN|接口异常"
+    regex: "AF.*接口.*down|AF.*接口.*断开|AF.*interface.*down|AF.*链路.*down|AF.*port.*down|AF.*物理接口.*异常|AF.*接口状态.*DOWN"
     description: "防火墙物理接口断开，可能影响网络连通性"
     keywords: ["接口", "down", "interface"]
     affected_components: ["网络连通性", "业务可用性", "安全策略"]
     quick_check: "AF控制台 → 网络配置 → 接口状态"
     dedup_extract: "(?:接口|interface|port)\\s*(\\S+)"
-    recovery_regex: "接口.*up|接口.*恢复|interface.*up|链路.*up|接口状态.*UP"
+    recovery_regex: "AF.*接口.*up|AF.*接口.*恢复|AF.*interface.*up|AF.*链路.*up|AF.*接口状态.*UP"
     recovery_name: "防火墙接口恢复"
 
   - name: "防火墙电源异常"
     level: critical
-    regex: "电源.*故障|电源.*异常|power.*fail|power supply.*fault|电源模块.*异常|POWER.*ALARM|电源告警"
+    regex: "AF.*电源.*故障|AF.*电源.*异常|AF.*power.*fail|AF.*power supply.*fault|AF.*电源模块.*异常|AF.*POWER.*ALARM|AF.*电源告警"
     description: "防火墙电源模块异常，存在断电风险"
     keywords: ["电源", "power", "fault"]
     affected_components: ["供电系统", "设备可用性"]
     quick_check: "AF控制台 → 运行状态 → 电源状态"
     dedup_extract: "(?:电源|Power)\\s*(\\S+)"
-    recovery_regex: "电源.*恢复|电源.*正常|power.*ok|power.*recover|POWER.*RECOVER"
+    recovery_regex: "AF.*电源.*恢复|AF.*电源.*正常|AF.*power.*ok|AF.*power.*recover|AF.*POWER.*RECOVER"
     recovery_name: "防火墙电源恢复"
 
   - name: "防火墙风扇故障"
     level: critical
-    regex: "风扇.*故障|风扇.*异常|fan.*fail|fan.*fault|风扇告警|FAN.*ALARM"
+    regex: "AF.*风扇.*故障|AF.*风扇.*异常|AF.*fan.*fail|AF.*fan.*fault|AF.*风扇告警|AF.*FAN.*ALARM"
     description: "防火墙风扇故障，设备散热受影响"
     keywords: ["风扇", "fan", "fault"]
     affected_components: ["散热系统", "设备温度"]
     quick_check: "AF控制台 → 运行状态 → 风扇状态"
     dedup_extract: "(?:风扇|Fan)\\s*(\\S+)"
-    recovery_regex: "风扇.*恢复|风扇.*正常|fan.*ok|fan.*recover|FAN.*RECOVER"
+    recovery_regex: "AF.*风扇.*恢复|AF.*风扇.*正常|AF.*fan.*ok|AF.*fan.*recover|AF.*FAN.*RECOVER"
     recovery_name: "防火墙风扇恢复"
 
   # ---------- SSL VPN - 隧道事件 ----------
 
   - name: "VPN隧道断开"
     level: critical
-    regex: "VPN.*隧道.*断开|VPN.*tunnel.*down|VPN.*断开|VPN.*disconnect|隧道.*down|tunnel.*down|IPSec.*down|SSL.*VPN.*断开|VPN连接.*失败|VPN.*离线"
+    regex: "SVPN.*VPN.*隧道.*断开|SVPN.*VPN.*tunnel.*down|SVPN.*VPN.*断开|SVPN.*VPN.*disconnect|SVPN.*隧道.*down|SVPN.*tunnel.*down|SVPN.*IPSec.*down|SVPN.*SSL.*VPN.*断开|SVPN.*VPN连接.*失败|SVPN.*VPN.*离线"
     description: "SSL VPN隧道断开，远程用户无法访问内网资源"
     keywords: ["VPN", "隧道", "断开", "tunnel", "down"]
     affected_components: ["远程接入", "VPN隧道", "移动办公"]
     quick_check: "SSL VPN控制台 → VPN隧道状态"
     dedup_extract: "(\\S*隧道\\S*|tunnel \\S+)"
-    recovery_regex: "VPN.*隧道.*建立|VPN.*tunnel.*up|VPN.*连接.*成功|VPN.*恢复|tunnel.*up|IPSec.*up|VPN.*在线"
+    recovery_regex: "SVPN.*VPN.*隧道.*建立|SVPN.*VPN.*tunnel.*up|SVPN.*VPN.*连接.*成功|SVPN.*VPN.*恢复|SVPN.*tunnel.*up|SVPN.*IPSec.*up|SVPN.*VPN.*在线"
     recovery_name: "VPN隧道恢复"
 
   - name: "VPN服务异常"
     level: critical
-    regex: "VPN.*服务.*异常|VPN.*服务.*停止|VPN.*service.*down|VPN.*不可用|VPN.*离线|VPN服务.*挂起|VPN.*crash"
+    regex: "SVPN.*VPN.*服务.*异常|SVPN.*VPN.*服务.*停止|SVPN.*VPN.*service.*down|SVPN.*VPN.*不可用|SVPN.*VPN.*离线|SVPN.*VPN服务.*挂起|SVPN.*VPN.*crash"
     description: "SSL VPN服务异常或停止，所有远程用户受影响"
     keywords: ["VPN", "服务", "异常", "service"]
     affected_components: ["VPN服务", "远程办公", "全部远程用户"]
     quick_check: "SSL VPN控制台 → 运行状态 → 服务状态"
-    recovery_regex: "VPN.*服务.*恢复|VPN.*服务.*启动|VPN.*service.*up|VPN.*服务.*正常"
+    recovery_regex: "SVPN.*VPN.*服务.*恢复|SVPN.*VPN.*服务.*启动|SVPN.*VPN.*service.*up|SVPN.*VPN.*服务.*正常"
     recovery_name: "VPN服务恢复"
 
   # ==================== 警告 (warning) ====================
@@ -152,80 +152,80 @@ patterns:
 
   - name: "防火墙CPU利用率高"
     level: warning
-    regex: "CPU.*使用率.*超|CPU.*过高|CPU.*exceed|CPU.*overload|CPU利用率.*超过|CPU.*阈值"
+    regex: "AF.*CPU.*使用率.*超|AF.*CPU.*过高|AF.*CPU.*exceed|AF.*CPU.*overload|AF.*CPU利用率.*超过|AF.*CPU.*阈值"
     description: "防火墙CPU利用率过高，可能影响处理性能"
     keywords: ["CPU", "使用率", "overload"]
     affected_components: ["处理性能", "安全检测能力", "会话建立"]
     quick_check: "AF控制台 → 运行状态 → CPU使用率"
-    recovery_regex: "CPU.*使用率.*恢复|CPU.*正常|CPU.*recover|CPU.*normal"
+    recovery_regex: "AF.*CPU.*使用率.*恢复|AF.*CPU.*正常|AF.*CPU.*recover|AF.*CPU.*normal"
     recovery_name: "防火墙CPU恢复正常"
 
   - name: "防火墙内存利用率高"
     level: warning
-    regex: "内存.*使用率.*超|内存.*过高|memory.*exceed|memory.*overload|内存利用率.*超过|内存.*阈值|MEM.*HIGH"
+    regex: "AF.*内存.*使用率.*超|AF.*内存.*过高|AF.*memory.*exceed|AF.*memory.*overload|AF.*内存利用率.*超过|AF.*内存.*阈值|AF.*MEM.*HIGH"
     description: "防火墙内存利用率过高，可能影响新建会话"
     keywords: ["内存", "memory", "overload"]
     affected_components: ["会话表", "处理能力", "系统稳定性"]
     quick_check: "AF控制台 → 运行状态 → 内存使用率"
-    recovery_regex: "内存.*使用率.*恢复|内存.*正常|memory.*recover|memory.*normal|MEM.*NORMAL"
+    recovery_regex: "AF.*内存.*使用率.*恢复|AF.*内存.*正常|AF.*memory.*recover|AF.*memory.*normal|AF.*MEM.*NORMAL"
     recovery_name: "防火墙内存恢复正常"
 
   - name: "防火墙会话数超限"
     level: warning
-    regex: "会话数.*超|会话表.*满|session.*exceed|session.*limit|并发会话.*超|会话资源.*不足|SESSION.*LIMIT"
+    regex: "AF.*会话数.*超|AF.*会话表.*满|AF.*session.*exceed|AF.*session.*limit|AF.*并发会话.*超|AF.*会话资源.*不足|AF.*SESSION.*LIMIT"
     description: "防火墙并发会话数超限，新建连接可能被丢弃"
     keywords: ["会话", "session", "limit"]
     affected_components: ["并发连接", "新建会话", "业务访问"]
     quick_check: "AF控制台 → 运行状态 → 会话统计"
-    recovery_regex: "会话数.*恢复|会话.*正常|session.*normal|session.*recover"
+    recovery_regex: "AF.*会话数.*恢复|AF.*会话.*正常|AF.*session.*normal|AF.*session.*recover"
     recovery_name: "会话数恢复正常"
 
   - name: "防火墙磁盘空间不足"
     level: warning
-    regex: "磁盘.*不足|磁盘.*满|disk.*full|disk.*space.*low|存储空间.*不足|硬盘.*告警|DISK.*FULL"
+    regex: "AF.*磁盘.*不足|AF.*磁盘.*满|AF.*disk.*full|AF.*disk.*space.*low|AF.*存储空间.*不足|AF.*硬盘.*告警|AF.*DISK.*FULL"
     description: "防火墙磁盘空间不足，日志和报告功能受影响"
     keywords: ["磁盘", "disk", "空间", "full"]
     affected_components: ["日志存储", "报告生成", "系统升级"]
     quick_check: "AF控制台 → 运行状态 → 磁盘使用率"
-    recovery_regex: "磁盘.*释放|磁盘.*正常|disk.*ok|disk.*recover|存储空间.*恢复"
+    recovery_regex: "AF.*磁盘.*释放|AF.*磁盘.*正常|AF.*disk.*ok|AF.*disk.*recover|AF.*存储空间.*恢复"
     recovery_name: "磁盘空间恢复"
 
   - name: "防火墙温度过高"
     level: warning
-    regex: "温度.*过高|temperature.*high|thermal.*alarm|过热|设备温度.*超|TEMP.*ALARM|温度告警"
+    regex: "AF.*温度.*过高|AF.*temperature.*high|AF.*thermal.*alarm|AF.*过热|AF.*设备温度.*超|AF.*TEMP.*ALARM|AF.*温度告警"
     description: "防火墙设备温度过高，可能影响硬件寿命"
     keywords: ["温度", "temperature", "thermal"]
     affected_components: ["硬件寿命", "芯片稳定性", "处理性能"]
     quick_check: "AF控制台 → 运行状态 → 设备温度"
-    recovery_regex: "温度.*正常|temperature.*normal|thermal.*normal|TEMP.*RECOVER"
+    recovery_regex: "AF.*温度.*正常|AF.*temperature.*normal|AF.*thermal.*normal|AF.*TEMP.*RECOVER"
     recovery_name: "设备温度恢复正常"
 
   - name: "防火墙License即将到期"
     level: warning
-    regex: "License.*到期|License.*过期|授权.*到期|授权.*过期|license.*expir|LICENSE.*EXPIR"
+    regex: "AF.*License.*到期|AF.*License.*过期|AF.*授权.*到期|AF.*授权.*过期|AF.*license.*expir|AF.*LICENSE.*EXPIR"
     description: "防火墙授权即将到期或已过期，功能可能受限"
     keywords: ["License", "授权", "到期", "expir"]
     affected_components: ["安全功能", "特征库更新", "合规性"]
     quick_check: "AF控制台 → 系统配置 → 授权管理"
     dedup_extract: "(License\\s*\\S+)"
-    recovery_regex: "License.*续期|License.*更新|授权.*更新|license.*renew|授权.*恢复"
+    recovery_regex: "AF.*License.*续期|AF.*License.*更新|AF.*授权.*更新|AF.*license.*renew|AF.*授权.*恢复"
     recovery_name: "License授权更新"
 
   - name: "特征库过期"
     level: warning
-    regex: "特征库.*过期|特征库.*更新.*失败|规则库.*过期|规则库.*失败|signature.*outdated|特征.*更新失败"
+    regex: "AF.*特征库.*过期|AF.*特征库.*更新.*失败|AF.*规则库.*过期|AF.*规则库.*失败|AF.*signature.*outdated|AF.*特征.*更新失败"
     description: "安全特征库过期或更新失败，威胁检测能力降低"
     keywords: ["特征库", "规则库", "过期", "signature"]
     affected_components: ["入侵检测", "病毒防护", "URL过滤"]
     quick_check: "AF控制台 → 系统配置 → 特征库更新"
-    recovery_regex: "特征库.*更新.*成功|规则库.*更新.*成功|signature.*updated|特征库.*恢复"
+    recovery_regex: "AF.*特征库.*更新.*成功|AF.*规则库.*更新.*成功|AF.*signature.*updated|AF.*特征库.*恢复"
     recovery_name: "特征库更新成功"
 
   # ---------- AF 防火墙 - 安全策略 ----------
 
   - name: "策略拒绝/阻断"
     level: warning
-    regex: "策略.*拒绝|策略.*阻断|policy.*deny|policy.*block|访问控制.*拒绝|安全策略.*阻断|ACL.*deny|黑名单.*命中"
+    regex: "AF.*策略.*拒绝|AF.*策略.*阻断|AF.*policy.*deny|AF.*policy.*block|AF.*访问控制.*拒绝|AF.*安全策略.*阻断|AF.*ACL.*deny|AF.*黑名单.*命中"
     description: "安全策略拦截了访问请求，可能存在攻击行为或策略误配置"
     keywords: ["策略", "拒绝", "deny", "block"]
     affected_components: ["安全策略", "业务访问", "合规审计"]
@@ -234,7 +234,7 @@ patterns:
 
   - name: "DOS/DDOS攻击"
     level: warning
-    regex: "DOS攻击|DDOS攻击|拒绝服务|flood.*attack|DDoS|DoS|SYN.*flood|ICMP.*flood|UDP.*flood|流量攻击|流量异常"
+    regex: "AF.*DOS攻击|AF.*DDOS攻击|AF.*拒绝服务|AF.*flood.*attack|AF.*DDoS|AF.*DoS|AF.*SYN.*flood|AF.*ICMP.*flood|AF.*UDP.*flood|AF.*流量攻击|AF.*流量异常"
     description: "检测到DOS/DDOS攻击或流量异常，可能影响服务可用性"
     keywords: ["DOS", "DDOS", "flood", "拒绝服务"]
     affected_components: ["网络带宽", "服务可用性", "服务器负载"]
@@ -243,7 +243,7 @@ patterns:
 
   - name: "异常流量/黑名单"
     level: warning
-    regex: "异常流量|流量基线.*偏离|黑名单.*命中|IP黑名单|黑名单.*匹配|bad.*reputation|恶意IP|C2.*IP|威胁情报.*命中"
+    regex: "AF.*异常流量|AF.*流量基线.*偏离|AF.*黑名单.*命中|AF.*IP黑名单|AF.*黑名单.*匹配|AF.*bad.*reputation|AF.*恶意IP|AF.*C2.*IP|AF.*威胁情报.*命中"
     description: "检测到异常流量或命中黑名单/威胁情报，可能存在安全风险"
     keywords: ["异常流量", "黑名单", "威胁情报"]
     affected_components: ["网络安全", "数据泄露", "内网渗透"]
@@ -254,7 +254,7 @@ patterns:
 
   - name: "VPN认证失败"
     level: warning
-    regex: "VPN.*认证.*失败|VPN.*登录.*失败|VPN.*auth.*fail|VPN.*login.*fail|SSL.*VPN.*认证失败|VPN用户.*锁定|VPN.*密码.*错误"
+    regex: "SVPN.*VPN.*认证.*失败|SVPN.*VPN.*登录.*失败|SVPN.*VPN.*auth.*fail|SVPN.*VPN.*login.*fail|SVPN.*SSL.*VPN.*认证失败|SVPN.*VPN用户.*锁定|SVPN.*VPN.*密码.*错误"
     description: "VPN用户认证失败，可能存在暴力破解或账户异常"
     keywords: ["VPN", "认证", "失败", "auth", "fail"]
     affected_components: ["VPN安全", "用户账户", "远程访问"]
@@ -263,29 +263,29 @@ patterns:
 
   - name: "VPN并发用户超限"
     level: warning
-    regex: "VPN.*并发.*超|VPN.*用户数.*超|VPN.*license.*limit|VPN.*连接数.*满|SSL.*VPN.*并发超限|VPN.*最大用户"
+    regex: "SVPN.*VPN.*并发.*超|SVPN.*VPN.*用户数.*超|SVPN.*VPN.*license.*limit|SVPN.*VPN.*连接数.*满|SVPN.*SSL.*VPN.*并发超限|SVPN.*VPN.*最大用户"
     description: "VPN并发用户数超限，新用户可能无法连接"
     keywords: ["VPN", "并发", "超限", "limit"]
     affected_components: ["远程接入", "并发许可", "用户体验"]
     quick_check: "SSL VPN控制台 → 运行状态 → 在线用户"
-    recovery_regex: "VPN.*并发.*恢复|VPN.*用户数.*正常|VPN.*连接数.*释放"
+    recovery_regex: "SVPN.*VPN.*并发.*恢复|SVPN.*VPN.*用户数.*正常|SVPN.*VPN.*连接数.*释放"
     recovery_name: "VPN并发用户数恢复"
 
   - name: "VPN资源异常"
     level: warning
-    regex: "VPN.*资源.*不足|VPN.*CPU.*高|VPN.*内存.*高|SSL.*VPN.*资源|VPN.*性能.*下降"
+    regex: "SVPN.*VPN.*资源.*不足|SVPN.*VPN.*CPU.*高|SVPN.*VPN.*内存.*高|SVPN.*SSL.*VPN.*资源|SVPN.*VPN.*性能.*下降"
     description: "VPN设备资源不足，可能影响VPN服务质量"
     keywords: ["VPN", "资源", "CPU", "内存"]
     affected_components: ["VPN性能", "连接质量", "用户体验"]
     quick_check: "SSL VPN控制台 → 运行状态 → 资源使用"
-    recovery_regex: "VPN.*资源.*恢复|VPN.*CPU.*正常|VPN.*内存.*正常"
+    recovery_regex: "SVPN.*VPN.*资源.*恢复|SVPN.*VPN.*CPU.*正常|SVPN.*VPN.*内存.*正常"
     recovery_name: "VPN资源恢复正常"
 
   # ==================== 关注 (info) ====================
 
   - name: "防火墙配置变更"
     level: info
-    regex: "配置.*变更|配置.*修改|config.*change|configuration.*modified|策略.*修改|规则.*修改"
+    regex: "AF.*配置.*变更|AF.*配置.*修改|AF.*config.*change|AF.*configuration.*modified|AF.*策略.*修改|AF.*规则.*修改"
     description: "防火墙配置发生变更"
     keywords: ["配置", "变更", "config"]
     affected_components: ["安全策略", "运行配置"]
@@ -294,7 +294,7 @@ patterns:
 
   - name: "防火墙管理员登录"
     level: info
-    regex: "管理员.*登录|admin.*login|管理.*登录.*成功|管理员.*认证.*成功"
+    regex: "AF.*管理员.*登录|AF.*admin.*login|AF.*管理.*登录.*成功|AF.*管理员.*认证.*成功"
     description: "管理员登录防火墙"
     keywords: ["管理员", "登录", "admin", "login"]
     affected_components: ["管理平面"]
@@ -303,7 +303,7 @@ patterns:
 
   - name: "VPN用户登录成功"
     level: info
-    regex: "VPN.*登录.*成功|VPN.*用户.*上线|VPN.*连接.*成功|VPN.*auth.*success"
+    regex: "SVPN.*VPN.*登录.*成功|SVPN.*VPN.*用户.*上线|SVPN.*VPN.*连接.*成功|SVPN.*VPN.*auth.*success"
     description: "VPN用户成功登录"
     keywords: ["VPN", "登录", "成功"]
     affected_components: ["远程接入"]

@@ -52,6 +52,10 @@ class SwitchMonitor:
 
         # alert_history: 去重用，记录 { "device:pattern_name": 最后一次通知时间戳 }
         self.alert_history = {}
+        
+        # active_alerts: 跟踪当前活跃的告警，用于恢复检测
+        # 格式: { "device:pattern_name[:dedup_extra]": { "timestamp": ..., "pattern": ... } }
+        self.active_alerts = {}
 
         self._init_logging()
         self._init_patterns()
@@ -138,6 +142,7 @@ class SwitchMonitor:
             "affected_components": p.get("affected_components", []),
             "quick_check": p.get("quick_check", ""),
             "custom": p.get("custom", False),
+            "recovery_name": p.get("recovery_name", ""),
         }
         # 编译 dedup_extract（可选）：用于从日志中提取变量成分细化去重 key
         dedup_extract = p.get("dedup_extract", "")
@@ -149,6 +154,16 @@ class SwitchMonitor:
                 entry["dedup_extract"] = None
         else:
             entry["dedup_extract"] = None
+        # 编译 recovery_regex（可选）：用于检测告警恢复
+        recovery_regex = p.get("recovery_regex", "")
+        if recovery_regex:
+            try:
+                entry["recovery_regex"] = re.compile(recovery_regex, re.IGNORECASE)
+            except re.error as e:
+                logger.warning("recovery_regex 编译失败 [%s]: %s", p["name"], e)
+                entry["recovery_regex"] = None
+        else:
+            entry["recovery_regex"] = None
         return entry
 
     def _load_custom_patterns(self, patterns_dir: str):
@@ -393,6 +408,35 @@ class SwitchMonitor:
                         "quick_check": pattern["quick_check"],
                         "vendor": v,
                         "dedup_extra": dedup_extra,
+                        "recovery_name": pattern.get("recovery_name", ""),
+                        "recovery_regex": pattern.get("recovery_regex", None),
+                    }
+        return None
+
+    def _match_recovery(self, line: str, vendor: str) -> dict:
+        """
+        对一行日志进行恢复匹配
+        检查是否匹配某个告警的恢复条件
+        """
+        vendors_to_check = [vendor] if vendor != "unknown" else list(self.patterns.keys())
+
+        for v in vendors_to_check:
+            for pattern in self.patterns.get(v, []):
+                recovery_regex = pattern.get("recovery_regex")
+                if recovery_regex and recovery_regex.search(line):
+                    # 提取去重变量成分（用于匹配对应的活跃告警）
+                    dedup_extra = ""
+                    if pattern.get("dedup_extract"):
+                        m = pattern["dedup_extract"].search(line)
+                        if m:
+                            dedup_extra = m.group(1) if m.lastindex else m.group(0)
+
+                    return {
+                        "pattern_name": pattern["name"],
+                        "recovery_name": pattern.get("recovery_name", f"{pattern['name']}-恢复"),
+                        "level": pattern["level"],
+                        "vendor": v,
+                        "dedup_extra": dedup_extra,
                     }
         return None
 
@@ -443,7 +487,20 @@ class SwitchMonitor:
 
         # 告警去重（时间窗口）
         if not self._should_notify(alert_key, level):
+            # 即使不通知，也要更新活跃告警记录
+            self.active_alerts[alert_key] = {
+                "timestamp": time.time(),
+                "pattern_name": pattern_name,
+                "level": level,
+            }
             return
+
+        # 将告警标记为活跃状态
+        self.active_alerts[alert_key] = {
+            "timestamp": time.time(),
+            "pattern_name": pattern_name,
+            "level": level,
+        }
 
         # 检查该级别是否需要钉钉通知和 AI 分析
         alert_levels = self.config.get("alert_levels", {})
@@ -476,6 +533,37 @@ class SwitchMonitor:
         if ai_result:
             print(f"  🤖 AI: {ai_result[:100]}...")
 
+    def _process_recovery(self, recovery: dict, raw_log: str):
+        """
+        处理恢复告警通知
+        """
+        device = recovery["device"]
+        pattern_name = recovery["pattern_name"]
+        recovery_name = recovery["recovery_name"]
+        level = recovery["level"]
+        alert_key = f"{device}:{pattern_name}"
+        dedup_extra = recovery.get("dedup_extra", "")
+        if dedup_extra:
+            alert_key = f"{device}:{pattern_name}:{dedup_extra}"
+
+        # 检查是否有对应的活跃告警
+        if alert_key not in self.active_alerts:
+            logger.debug("无对应的活跃告警，跳过恢复通知: %s", alert_key)
+            return
+
+        # 移除活跃告警记录
+        del self.active_alerts[alert_key]
+
+        # 发送恢复通知
+        logger.info("发送恢复告警通知: %s - %s", device, recovery_name)
+        try:
+            self.notifier.send_recovery(device, recovery_name, pattern_name, level, raw_log)
+        except Exception as e:
+            logger.error("恢复通知发送失败: %s", e)
+
+        # 输出到控制台
+        print(f"✅ [RECOVERY] {device} | {recovery_name} | {raw_log[:100]}")
+
     def run_once(self):
         """执行一次巡检（扫描所有日志文件的新增内容）"""
         log_files = self._discover_log_files()
@@ -495,6 +583,20 @@ class SwitchMonitor:
 
             for line in new_lines:
                 if not line.strip():
+                    continue
+
+                # 先检查是否匹配恢复模式
+                recovery_match = self._match_recovery(line, vendor)
+                if recovery_match:
+                    recovery = {
+                        "device": device,
+                        "vendor": recovery_match["vendor"],
+                        "pattern_name": recovery_match["pattern_name"],
+                        "recovery_name": recovery_match["recovery_name"],
+                        "level": recovery_match["level"],
+                        "dedup_extra": recovery_match["dedup_extra"],
+                    }
+                    self._process_recovery(recovery, line)
                     continue
 
                 # 检查是否匹配告警模式

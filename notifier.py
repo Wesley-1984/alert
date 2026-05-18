@@ -163,6 +163,40 @@ class DingTalkNotifier:
         md_text = "\n".join(md_lines)
         return self.send_markdown(title, md_text)
 
+    def send_recovery(self, device: str, recovery_name: str, pattern_name: str, 
+                      level: str, raw_log: str) -> dict:
+        """
+        发送告警恢复通知
+
+        Args:
+            device: 设备名称/IP
+            recovery_name: 恢复告警名称
+            pattern_name: 原始告警名称
+            level: 原始告警级别
+            raw_log: 原始日志内容
+        """
+        level_icons = {
+            "critical": "🔴",
+            "warning": "🟠",
+            "info": "🟡"
+        }
+        level_icon = level_icons.get(level, "🟡")
+
+        title = f"【✅ 恢复】{device} - {recovery_name}"
+        md_lines = [
+            f"### ✅ 告警恢复通知",
+            f"",
+            f"**设备**: {device}",
+            f"**恢复项**: {recovery_name}",
+            f"**原始告警**: {level_icon} {pattern_name}",
+            f"**恢复时间**: {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"",
+            f"> {raw_log[:200]}",
+        ]
+
+        md_text = "\n".join(md_lines)
+        return self.send_markdown(title, md_text)
+
     def send_summary(self, stats: dict) -> dict:
         """
         发送巡检汇总通知
