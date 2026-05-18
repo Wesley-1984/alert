@@ -29,6 +29,7 @@ sys.path.insert(0, SCRIPT_DIR)
 
 from notifier import DingTalkNotifier
 from analyzer import AIAnalyzer
+from reviewer import FaultReviewer
 
 logger = logging.getLogger("switch-monitor")
 
@@ -54,13 +55,14 @@ class SwitchMonitor:
         self.alert_history = {}
         
         # active_alerts: 跟踪当前活跃的告警，用于恢复检测
-        # 格式: { "device:pattern_name[:dedup_extra]": { "timestamp": ..., "pattern": ... } }
+        # 格式: { "device:pattern_name[:dedup_extra]": { "timestamp": ..., "pattern": ..., "ai_analysis": ... } }
         self.active_alerts = {}
 
         self._init_logging()
         self._init_patterns()
         self._init_notifier()
         self._init_analyzer()
+        self._init_reviewer()
         self._load_state()
 
     def _load_config(self, config_path: str) -> dict:
@@ -238,6 +240,26 @@ class SwitchMonitor:
             self.analyzer = None
             self.ai_enabled = False
             logger.info("AI 分析未启用")
+
+    def _init_reviewer(self):
+        """初始化故障复盘器"""
+        ai_conf = self.config.get("ai", {})
+        runtime = self.config.get("runtime", {})
+        if ai_conf.get("enabled", False):
+            archive_dir = runtime.get("archive_dir", "/var/log/switch-monitor/archive")
+            self.reviewer = FaultReviewer(
+                api_base=ai_conf.get("api_base", ""),
+                api_key=ai_conf.get("api_key", ""),
+                model=ai_conf.get("model", "deepseek-chat"),
+                timeout=60,
+                archive_dir=archive_dir
+            )
+            self.review_enabled = True
+            logger.info("故障复盘已启用 (档案目录: %s)", archive_dir)
+        else:
+            self.reviewer = None
+            self.review_enabled = False
+            logger.info("故障复盘未启用")
 
     def _load_state(self):
         """加载运行时状态（文件读取位置 + 告警去重历史）"""
@@ -492,6 +514,8 @@ class SwitchMonitor:
                 "timestamp": time.time(),
                 "pattern_name": pattern_name,
                 "level": level,
+                "ai_analysis": "",
+                "alert_data": alert  # 保存完整告警信息
             }
             return
 
@@ -500,6 +524,8 @@ class SwitchMonitor:
             "timestamp": time.time(),
             "pattern_name": pattern_name,
             "level": level,
+            "ai_analysis": "",
+            "alert_data": alert  # 保存完整告警信息
         }
 
         # 检查该级别是否需要钉钉通知和 AI 分析
@@ -514,9 +540,12 @@ class SwitchMonitor:
             logger.info("AI 分析中: %s - %s", device, pattern_name)
             try:
                 ai_result = self.analyzer.analyze(alert)
+                # 保存 AI 分析结果到活跃告警记录
+                self.active_alerts[alert_key]["ai_analysis"] = ai_result
             except Exception as e:
                 logger.error("AI 分析异常: %s", e)
                 ai_result = f"⚠️ AI 分析失败: {str(e)}"
+                self.active_alerts[alert_key]["ai_analysis"] = ai_result
 
         # 钉钉通知
         if should_notify:
@@ -551,6 +580,16 @@ class SwitchMonitor:
             logger.debug("无对应的活跃告警，跳过恢复通知: %s", alert_key)
             return
 
+        # 获取活跃告警信息（用于复盘）
+        active_alert = self.active_alerts[alert_key]
+        fault_timestamp = active_alert["timestamp"]
+        ai_initial_analysis = active_alert.get("ai_analysis", "")
+        alert_data = active_alert.get("alert_data", {})
+
+        # 计算故障持续时间
+        recovery_timestamp = time.time()
+        duration_seconds = int(recovery_timestamp - fault_timestamp)
+
         # 移除活跃告警记录
         del self.active_alerts[alert_key]
 
@@ -561,8 +600,40 @@ class SwitchMonitor:
         except Exception as e:
             logger.error("恢复通知发送失败: %s", e)
 
+        # AI 故障复盘
+        if self.review_enabled:
+            logger.info("开始 AI 故障复盘: %s - %s", device, pattern_name)
+            try:
+                # 构建复盘所需的告警信息（使用保存的完整告警数据）
+                review_alert = {
+                    "device": device,
+                    "vendor": recovery["vendor"],
+                    "pattern_name": pattern_name,
+                    "level": level,
+                    "description": alert_data.get("description", ""),
+                    "affected_components": alert_data.get("affected_components", []),
+                    "quick_check": alert_data.get("quick_check", ""),
+                    "raw_log": alert_data.get("raw_log", ""),
+                    "timestamp": datetime.fromtimestamp(fault_timestamp).strftime("%Y-%m-%d %H:%M:%S"),
+                    "recovery_timestamp": datetime.fromtimestamp(recovery_timestamp).strftime("%Y-%m-%d %H:%M:%S"),
+                    "duration_seconds": duration_seconds,
+                }
+
+                # 调用复盘
+                archive = self.reviewer.review(
+                    review_alert,
+                    recovery_log=raw_log,
+                    ai_initial_analysis=ai_initial_analysis
+                )
+
+                logger.info("故障复盘完成: %s", archive.get("meta", {}).get("fault_time", "未知"))
+            except Exception as e:
+                logger.error("AI 故障复盘失败: %s", e)
+
         # 输出到控制台
-        print(f"✅ [RECOVERY] {device} | {recovery_name} | {raw_log[:100]}")
+        hours = duration_seconds // 3600
+        minutes = (duration_seconds % 3600) // 60
+        print(f"✅ [RECOVERY] {device} | {recovery_name} | 持续时间: {hours}h{minutes}m")
 
     def run_once(self):
         """执行一次巡检（扫描所有日志文件的新增内容）"""

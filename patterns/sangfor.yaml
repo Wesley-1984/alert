@@ -35,7 +35,7 @@ patterns:
 
   - name: "入侵攻击检测"
     level: critical
-    regex: "入侵攻击|入侵检测|intrusion.*detect|INTRUSION|attack.*detect|ATTACK_DETECT|攻击检测|attack_type"
+    regex: "AF.*入侵攻击|AF.*入侵检测|AF.*intrusion.*detect|AF.*INTRUSION|AF.*attack.*detect|AF.*ATTACK_DETECT|AF.*攻击检测|AF.*attack_type"
     description: "检测到入侵攻击行为，可能存在安全威胁"
     keywords: ["入侵", "intrusion", "attack"]
     affected_components: ["网络安全", "受攻击主机", "业务系统"]
@@ -44,7 +44,7 @@ patterns:
 
   - name: "病毒检测"
     level: critical
-    regex: "病毒.*检测|病毒.*发现|virus.*detect|VIRUS|病毒拦截|木马|trojan|worm|malware|恶意软件|恶意代码"
+    regex: "AF.*病毒.*检测|AF.*病毒.*发现|AF.*virus.*detect|AF.*VIRUS|AF.*病毒拦截|AF.*木马|AF.*trojan|AF.*worm|AF.*malware|AF.*恶意软件|AF.*恶意代码"
     description: "检测到病毒/木马/恶意软件，需要立即处理"
     keywords: ["病毒", "virus", "trojan", "malware"]
     affected_components: ["终端安全", "文件安全", "网络隔离"]
@@ -53,25 +53,25 @@ patterns:
 
   - name: "漏洞利用检测"
     level: critical
-    regex: "漏洞.*利用|exploit|CVE-|vulnerability.*exploit|漏洞攻击|漏洞防护|WEB攻击|web.*attack|SQL注入|XSS|命令注入|code.*injection"
+    regex: "AF.*漏洞.*利用|AF.*exploit|AF.*CVE-|AF.*vulnerability.*exploit|AF.*漏洞攻击|AF.*漏洞防护|AF.*WEB攻击|AF.*web.*attack|AF.*SQL注入|AF.*XSS|AF.*命令注入|AF.*code.*injection"
     description: "检测到漏洞利用攻击或Web攻击，存在被入侵风险"
     keywords: ["漏洞", "exploit", "CVE", "注入", "injection"]
     affected_components: ["服务器安全", "Web应用", "数据库"]
     quick_check: "AF控制台 → 漏洞防护日志 → 查看攻击详情"
     dedup_extract: "(CVE-\\S+)"
 
-  - name: "僵尸网络/DNS隧道"
+  - name: "僵尸网络/DNS隧道检测"
     level: critical
-    regex: "僵尸网络|botnet|DNS隧道|dns.*tunnel|C2.*通信|C&C|暗网|dark.*web|隐蔽通道|covert.*channel"
+    regex: "AF.*僵尸网络|AF.*botnet|AF.*DNS隧道|AF.*dns.*tunnel|AF.*C2.*通信|AF.*C&C|AF.*暗网|AF.*dark.*web|AF.*隐蔽通道|AF.*covert.*channel"
     description: "检测到僵尸网络通信或DNS隧道行为，主机可能已被控"
     keywords: ["botnet", "C2", "DNS隧道"]
     affected_components: ["终端安全", "数据泄露", "内网渗透"]
     quick_check: "AF控制台 → 高级威胁日志 → 查看通信详情"
     dedup_extract: "(\\d+\\.\\d+\\.\\d+\\.\\d+)"
 
-  - name: "暴力破解攻击"
+  - name: "暴力破解检测"
     level: critical
-    regex: "暴力破解|brute.*force|爆破|密码猜测|password.*crack|爆破攻击|login.*brute"
+    regex: "AF.*暴力破解|AF.*brute.*force|AF.*爆破|AF.*密码猜测|AF.*password.*crack|AF.*爆破攻击|AF.*login.*brute"
     description: "检测到暴力破解攻击，可能存在口令泄露风险"
     keywords: ["暴力破解", "brute force", "爆破"]
     affected_components: ["账户安全", "管理平面"]
